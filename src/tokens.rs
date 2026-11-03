@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::cmp;
 use std::fmt;
 use std::hash::BuildHasher;
@@ -635,8 +637,7 @@ impl Tokens {
                 Ok(())
             }
             Tokens::LRegExpSet(name, value) => {
-                let exp = Regex::new(&format!(r"^{name}$"))
-                   .map_err(|e| PyErr::new::<PyValueError, _>(e.to_string()))?;
+                let exp = operator_regex(&name)?;
                 let substituted = substitution(value, dict)?;
                 let substituted_val = ParamVal::from(substituted);
                 for (key, val) in dict.iter_mut() {
@@ -648,8 +649,7 @@ impl Tokens {
                 Ok(())
             }
             Tokens::LRegExpAppend(name, value) => {
-                let exp = Regex::new(&format!(r"^{name}$"))
-                   .map_err(|e| PyErr::new::<PyValueError, _>(e.to_string()))?;
+                let exp = operator_regex(&name)?;
                 let substituted = substitution(value, dict)?;
                 for (key, val) in dict.iter_mut() {
                     let key_str = Cow::from(key);
@@ -660,8 +660,7 @@ impl Tokens {
                 Ok(())
             }
             Tokens::LRegExpPrepend(name, value) => {
-                let exp = Regex::new(&format!(r"^{name}$"))
-                   .map_err(|e| PyErr::new::<PyValueError, _>(e.to_string()))?;
+                let exp = operator_regex(&name)?;
                 let substituted = substitution(value, dict)?;
                 for (key, val) in dict.iter_mut() {
                     let key_str = Cow::from(key);
@@ -672,8 +671,7 @@ impl Tokens {
                 Ok(())
             }
             Tokens::LDel(name, _val) => {
-                let exp = Regex::new(&format!(r"^{name}$"))
-                    .map_err(|e| PyErr::new::<PyValueError, _>(e.to_string()))?;
+                let exp = operator_regex(&name)?;
                 dict.retain(|key, _value| {
                     let key_str = Cow::from(key);
                     RESERVED_KEYS.contains(&key_str.as_ref()) || !exp.is_match(&key_str)
@@ -817,7 +815,10 @@ fn compare_data_size(a: &str, b: &str) -> cmp::Ordering {
 }
 
 pub fn apply_suffix_bounds(dict: &mut HashMap<ParamKey, ParamVal>) {
-    for key in dict.keys().cloned().collect::<Vec<_>>() {
+    for key in dict.keys().filter(|key| {
+        matches!(key, ParamKey::String(name) if
+            name.ends_with("_max") || name.ends_with("_min") || name.ends_with("_fixed"))
+    }).cloned().collect::<Vec<_>>() {
         match key {
             ParamKey::Tuple(_) => {
                 // Skip tuple keys as they are generated from suffixes and should not be processed for bounds
@@ -851,7 +852,30 @@ pub fn apply_suffix_bounds(dict: &mut HashMap<ParamKey, ParamVal>) {
     }
 }
 
-pub fn drop_suffixes(dict: &HashMap<ParamKey, ParamVal>, skipdups: bool) -> PyResult<HashMap<ParamKey, ParamVal>> {
+pub fn drop_suffixes(dict: &HashMap<ParamKey, ParamVal>, skipdups: bool) -> PyResult<Cow<'_, HashMap<ParamKey, ParamVal>>> {
+    if dict.keys().all(|key| matches!(key, ParamKey::String(_))) {
+        return Ok(Cow::Borrowed(dict));
+    }
+
+    // compare each suffix group once, keeping equal value in a general key or else setting to none
+    let mut suffix_values: HashMap<&str, Option<Cow<'_, str>>> = HashMap::new();
+    if skipdups {
+        for (key, value) in dict {
+            if let ParamKey::Tuple(parts) = key
+                && let Some(base) = parts.first()
+                && !dict.contains_key_str(base) {
+                    let value = Cow::from(value);
+                    suffix_values.entry(base.as_str())
+                        .and_modify(|first| {
+                            if first.as_ref().is_some_and(|first| first != &value) {
+                                *first = None;
+                            }
+                        })
+                        .or_insert(Some(value));
+                }
+        }
+    }
+
     let d_flat: HashMap<ParamKey, ParamVal> = dict
         .iter()
         .filter_map(|(key, value)| {
@@ -873,19 +897,8 @@ pub fn drop_suffixes(dict: &HashMap<ParamKey, ParamVal>, skipdups: bool) -> PyRe
                         }
 
                         if can_drop_all_suffixes {
-                            can_drop_all_suffixes = dict
-                                .iter()
-                                .filter_map(|(other_key, other_value)| {
-                                    match other_key {
-                                        ParamKey::Tuple(other_vec) => {
-                                            other_vec.first()
-                                                .filter(|k| *k == gen_key_str)
-                                                .map(|_| Cow::from(other_value))
-                                        }
-                                        _ => None,
-                                    }
-                                })
-                                .all(|other_value_str| other_value_str == value_str);
+                            can_drop_all_suffixes = suffix_values
+                                .get(gen_key_str).is_some_and(Option::is_some);
                         }
                     }
 
@@ -903,7 +916,28 @@ pub fn drop_suffixes(dict: &HashMap<ParamKey, ParamVal>, skipdups: bool) -> PyRe
         })
         .collect();
 
-    Ok(d_flat)
+    Ok(Cow::Owned(d_flat))
+}
+
+// bound retained patterns per thread, without locking and synchronizing the evaluation path
+thread_local! {
+    static OPERATOR_REGEXES: RefCell<HashMap<String, Rc<Regex>>> = RefCell::new(HashMap::new());
+}
+
+fn operator_regex(name: &str) -> PyResult<Rc<Regex>> {
+    OPERATOR_REGEXES.with_borrow_mut(|cache| {
+        if let Some(exp) = cache.get(name) {
+            return Ok(Rc::clone(exp));
+        }
+        // compile on first use preserving operator error timing and anchoring
+        let exp = Rc::new(Regex::new(&format!(r"^{name}$"))
+            .map_err(|e| PyErr::new::<PyValueError, _>(e.to_string()))?);
+        if cache.len() >= 256 {
+            cache.clear();
+        }
+        cache.insert(name.to_string(), Rc::clone(&exp));
+        Ok(exp)
+    })
 }
 
 static MATCH_SUBSTITUTE: LazyLock<Regex> = LazyLock::new(|| {
@@ -918,7 +952,8 @@ pub fn substitution(value: String, dict: &HashMap<ParamKey, ParamVal>) -> PyResu
     let mut start = 0;
     let mut result = String::with_capacity(value.len());
     // only initialize and drop suffixes of the dict is we actually have matches to substitute
-    let mut d: Option<HashMap<ParamKey, ParamVal>> = None;
+    // otherwise just borrow the original dictionary
+    let mut d: Option<Cow<'_, HashMap<ParamKey, ParamVal>>> = None;
 
     while let Some(captures) = MATCH_SUBSTITUTE.captures(&value[start..]) {
         if let Some(matched) = captures.get(0) {
@@ -926,7 +961,7 @@ pub fn substitution(value: String, dict: &HashMap<ParamKey, ParamVal>) -> PyResu
             if d.is_none() {
                 d = Some(drop_suffixes(dict, true)?);
             }
-            if let Some(val) = d.as_ref().unwrap_or(&HashMap::new()).get_str(key) {
+            if let Some(val) = d.as_deref().unwrap_or(dict).get_str(key) {
                 result.push_str(&value[start..start + matched.start()]);
                 result.push_str(&val.to_string());
                 start += matched.end();
@@ -943,6 +978,27 @@ pub fn substitution(value: String, dict: &HashMap<ParamKey, ParamVal>) -> PyResu
 mod tests {
     use super::*;
     use hashbrown::HashMap;
+
+    #[test]
+    fn test_repeated_regexp_operators() {
+        let pattern = "(key.*|name)".to_string();
+        let compiled = operator_regex(&pattern).unwrap();
+        for _ in 0..2 {
+            let mut dict = HashMap::new();
+            dict.insert_str("key1", "old".to_string().into());
+            dict.insert_str("name", "reserved".to_string().into());
+            Tokens::LRegExpSet(pattern.clone(), "value".to_string()).apply_to_dict(&mut dict).unwrap();
+            Tokens::LRegExpAppend(pattern.clone(), "_end".to_string()).apply_to_dict(&mut dict).unwrap();
+            Tokens::LRegExpPrepend(pattern.clone(), "start_".to_string()).apply_to_dict(&mut dict).unwrap();
+            assert_eq!(dict.get_str("key1"), Some(&"start_value_end".to_string().into()));
+            Tokens::LDel(pattern.clone(), String::new()).apply_to_dict(&mut dict).unwrap();
+            assert_eq!(dict.len(), 1);
+            assert_eq!(dict.get_str("name"), Some(&"reserved".to_string().into()));
+            assert!(Tokens::LDel("(".to_string(), String::new()).apply_to_dict(&mut dict).is_err());
+            assert_eq!(dict.len(), 1);
+            assert!(Rc::ptr_eq(&compiled, &operator_regex(&pattern).unwrap()));
+        }
+    }
 
     #[test]
     fn test_display() {
@@ -1046,6 +1102,7 @@ mod tests {
             (ParamKey::String("size".to_string()), ParamVal::String("2.5G".to_string())),
             (ParamKey::String("speed_fixed".to_string()), ParamVal::String("100M".to_string())),
             (ParamKey::String("speed".to_string()), ParamVal::String("50M".to_string())),
+            (ParamKey::Tuple(vec!["size_max".to_string(), "_s1".to_string()]), ParamVal::String("0G".to_string())),
         ].iter().cloned().collect();
         apply_suffix_bounds(&mut d);
         assert_eq!(d.get_str("size"), Some(&ParamVal::String("2G".to_string())));
@@ -1117,6 +1174,18 @@ mod tests {
     }
 
     #[test]
+    fn test_substitution_with_mixed_keys() {
+        let dict: HashMap<ParamKey, ParamVal> = [
+            (ParamKey::String("key".to_string()), ParamVal::String("base".to_string())),
+            (ParamKey::Tuple(vec!["key".to_string(), "_s1".to_string()]), ParamVal::String("variant".to_string())),
+            (ParamKey::Tuple(vec!["other".to_string(), "_s1".to_string()]), ParamVal::String("shared".to_string())),
+            (ParamKey::Tuple(vec!["other".to_string(), "_s2".to_string()]), ParamVal::String("shared".to_string())),
+        ].iter().cloned().collect();
+        let result = substitution("${key} ${key_s1} ${other}".to_string(), &dict).unwrap();
+        assert_eq!(result, "base variant shared");
+    }
+
+    #[test]
     fn test_drop_suffixes_with_simple_keys() {
         let dict: HashMap<ParamKey, ParamVal> = [
             (ParamKey::String("key1".to_string()), ParamVal::String("value1".to_string())),
@@ -1172,6 +1241,21 @@ mod tests {
         assert_eq!(result.get_str("key3"), Some(&ParamVal::String("value3".to_string())), "single suffix is converted to general key");
         assert_eq!(result.get_str("key4"), Some(&ParamVal::String("value4".to_string())), "single general key is preserved");
         assert_eq!(result.get_str("key5"), Some(&ParamVal::String("value5".to_string())), "single general key is preserved");
+    }
+
+    #[test]
+    fn test_drop_suffixes_compares_values_as_text() {
+        let dict: HashMap<ParamKey, ParamVal> = [
+            (ParamKey::String("plain".to_string()), ParamVal::List(vec!["a".to_string(), "b".to_string()])),
+            (ParamKey::Tuple(vec!["plain".to_string(), "_s1".to_string()]), ParamVal::String("ab".to_string())),
+            (ParamKey::Tuple(vec!["group".to_string(), "_s1".to_string()]), ParamVal::List(vec!["a".to_string(), "b".to_string()])),
+            (ParamKey::Tuple(vec!["group".to_string(), "_s2".to_string()]), ParamVal::String("ab".to_string())),
+            (ParamKey::Tuple(Vec::new()), ParamVal::String("ignored".to_string())),
+        ].into_iter().collect();
+        let result = drop_suffixes(&dict, true).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(Cow::from(result.get_str("plain").unwrap()), "ab");
+        assert_eq!(Cow::from(result.get_str("group").unwrap()), "ab");
     }
 
     #[test]
