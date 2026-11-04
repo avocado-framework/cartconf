@@ -1802,8 +1802,8 @@ impl PreDict {
         ctx_flat.extend_from_slice(&ctx);
 
         let node_content = effective_content.as_deref().unwrap_or(&node.content);
-        let failed = self.failed_cases.get(&node.id).and_then(|cases| {
-            cases.iter().position(|case| {
+        let failed = self.failed_cases.get_mut(&node.id).and_then(|cases| {
+            let i = cases.iter().position(|case| {
                /* TODO: add optional logging
                 self._debug(
                     "\n*    this subtree has failed before %s\n"
@@ -1817,14 +1817,12 @@ impl PreDict {
                 !Self::check_failed_case(
                     case, &ctx_flat, labels, self._content.iter().flatten(), node_content,
                 )
-            })
-        });
-        // prioritize any first detected failed case
-        if let Some(i) = failed {
-            let cases = self.failed_cases.get_mut(&node.id).unwrap();
-            let case = cases.remove(i).unwrap();
+            })?;
+            // prioritize any first detected failed case
+            let case = cases.remove(i)?;
             cases.push_front(case);
-        }
+            Some(i)
+        });
 
         self._ctx.push(ctx);
         self._shortname.push(shortname);
@@ -1931,8 +1929,9 @@ impl PreDict {
 
     }
 
-    fn joined_dict(&self, depth: usize) -> HashMap<ParamKey, ParamVal> {
-        let dicts = self.join_dicts[depth].as_ref().unwrap();
+    fn joined_dict(&self, depth: usize) -> PyResult<HashMap<ParamKey, ParamVal>> {
+        let dicts = self.join_dicts.get(depth).and_then(Option::as_ref).ok_or_else(||
+            PyValueError::new_err(format!("Join dicts not initialized at depth {depth}")))?;
         let mut d: HashMap<ParamKey, ParamVal> = HashMap::new();
         let mut name = String::new();
         let mut shortname = String::new();
@@ -1953,7 +1952,7 @@ impl PreDict {
         }
         d.insert_str("name", name.into());
         d.insert_str("shortname", shortname.into());
-        d
+        Ok(d)
     }
 
     /*
@@ -2007,7 +2006,9 @@ impl PreDict {
                     return Ok(TraversalStep::Dict(dict));
                 }
             }
-            let child_index = self.route[depth].unwrap();
+            let Some(child_index) = self.route[depth] else {
+                return Err(PyValueError::new_err("Pre-dictionary route not initialized"));
+            };
             if child_index < self.branch[depth].children.len() {
                 let child = Rc::clone(&self.branch[depth].children[child_index]);
                 let updated = self.update_from_node(child, None)?;
@@ -2027,7 +2028,10 @@ impl PreDict {
                 return Ok(TraversalStep::Done);
             }
             self.reset_from_last_node();
-            *self.route[depth - 1].as_mut().unwrap() += 1;
+            let Some(child_index) = self.route[depth - 1].as_mut() else {
+                return Err(PyValueError::new_err("Pre-dictionary parent route not initialized"));
+            };
+            *child_index += 1;
         }
     }
 
@@ -2057,10 +2061,20 @@ impl PreDict {
                 match current.advance() {
                     // advancing requests this joined dict but leaves its evaluation to the driver
                     Ok(TraversalStep::Join(depth, width)) => {
+                        let Some(join) = current.joins.get(depth).and_then(Option::as_ref)
+                            .and_then(|joins| joins.get(width)) else {
+                            result = Some(Err(PyValueError::new_err("Inconsistent pre-dictionary join state")));
+                            continue;
+                        };
+                        let Some(child_slot) = current.join_pre_dicts.get_mut(depth).and_then(Option::as_mut)
+                            .and_then(|pre_dicts| pre_dicts.get_mut(width)) else {
+                            result = Some(Err(PyValueError::new_err("Inconsistent pre-dictionary join state")));
+                            continue;
+                        };
                         // take moves a saved evaluator out of its slot, temporarily leaving None without cloning it
                         // while unwrap_or_else creates a new evaluator only when no saved continuation exists
                         // (moved evaluators must be restored before returning, even on errors)
-                        let mut child = current.join_pre_dicts[depth].as_mut().unwrap()[width].take()
+                        let mut child = child_slot.take()
                             .unwrap_or_else(|| Self::from_frames(
                                 // accumulated state from frame zero as the seed excluding the current node at depth which contributes frame depth + 1
                                 &current._ctx[..depth + 1], &current._content[..depth + 1],
@@ -2077,7 +2091,7 @@ impl PreDict {
                             // new entry needs an owned content vector using the join-free override when present
                             let mut content = current.processed_content[depth].as_ref().unwrap_or(&node.content).clone();
                             // prepared joins made each join operand an only-filter to restrict with here
-                            content.push(current.joins[depth].as_ref().unwrap()[width].clone());
+                            content.push(join.clone());
                             // shares the node returning accepted, rejected, or an error for initialization
                             child.update_from_node(Rc::clone(node), Some(content))
                         };
@@ -2100,7 +2114,8 @@ impl PreDict {
             }
             // result is always completed at this point - take() moves that completion out and clears result so
             // traversal can resume unless another result is queued (error or else)
-            let completed = result.take().unwrap();
+            let completed = result.take().unwrap_or_else(||
+                Err(PyRuntimeError::new_err("Pre-dictionary traversal did not complete")));
             let Some((child, depth, width)) = stack.pop() else {
                 // no child remains on the temporary stack of nested joins so completion belongs to self and its caller
                 return completed;
@@ -2108,7 +2123,12 @@ impl PreDict {
             // after popping the child its parent is the new stack top or self for the outermost nested join
             let parent = stack.last_mut().map(|frame| &mut frame.0).unwrap_or(self);
             // restore the evaluator's ownership and continuation before processing its completion
-            parent.join_pre_dicts[depth].as_mut().unwrap()[width] = Some(child);
+            let Some(child_slot) = parent.join_pre_dicts.get_mut(depth).and_then(Option::as_mut)
+                .and_then(|pre_dicts| pre_dicts.get_mut(width)) else {
+                result = Some(Err(PyValueError::new_err("Inconsistent pre-dictionary join state")));
+                continue;
+            };
+            let child = child_slot.insert(child);
             match completed {
                 // forward the error while restoring remaining ancestors without advancing them (result is no longer none)
                 Err(err) => result = Some(Err(err)),
@@ -2117,11 +2137,19 @@ impl PreDict {
                     // dict is an optional joined result so remember exhaustion before moving it into the cache
                     let exhausted = dict.is_none();
                     // count refers to join operands and not the AST node's children
-                    let count = parent.joins[depth].as_ref().unwrap().len();
+                    let Some(joins) = parent.joins.get(depth).and_then(Option::as_ref) else {
+                        result = Some(Err(PyValueError::new_err("Inconsistent pre-dictionary join state")));
+                        continue;
+                    };
+                    let count = joins.len();
                     // here Some replaces the cached candidate while None clears it when that join pre-dict is exhausted
-                    parent.join_dicts[depth].as_mut().unwrap()[width] = dict;
+                    let Some(dict_slot) = parent.join_dicts.get_mut(depth).and_then(Option::as_mut)
+                        .and_then(|dicts| dicts.get_mut(width)) else {
+                        result = Some(Err(PyValueError::new_err("Inconsistent pre-dictionary join state")));
+                        continue;
+                    };
+                    *dict_slot = dict;
                     if exhausted {
-                        let child = parent.join_pre_dicts[depth].as_mut().unwrap()[width].as_mut().unwrap();
                         // normal exhaustion has backtracked to the entry node - pop it so the join pre-dict can restart
                         // while the preceding seed frames remain available for another combination
                         if !child.branch.is_empty() {
@@ -2133,7 +2161,7 @@ impl PreDict {
                     } else if width + 1 == count {
                         // all join variants now have a dictionary so merge their caches and names in order and leave
                         // width on the final operand so the next call advances its join variant before earlier operands
-                        result = Some(Ok(Some(parent.joined_dict(depth))));
+                        result = Some(parent.joined_dict(depth).map(Some));
                     } else {
                         // obtain the next joined dictionary before emitting a combination (result stays None to resume the parent)
                         parent.join_width[depth] = width + 1;
@@ -2531,7 +2559,8 @@ mod tests {
     }
 
     #[test]
-    fn test_advance_propagates_child_entry_error() {
+    fn test_advance_propagates_errors() {
+        Python::initialize();
         // malformed content as "no condition" conditional node inside another
         let mut child = Node::new();
         child.add_content("<test>".to_string(), 1, ContentType::Node(Rc::new(Node::new())));
@@ -2542,13 +2571,23 @@ mod tests {
         // seeding the valid root succeeds
         assert!(pre_dict.update_from_node(Rc::clone(&root), None).unwrap());
 
-        // error raised by traversing into the invalid node must reache the caller
+        // error raised by traversing into the invalid node must reach the caller
         let error = pre_dict.advance().err().expect("Expected a child-entry error");
-        Python::initialize();
         Python::attach(|py| assert!(error.is_instance_of::<PyTypeError>(py)));
         // the unsuccessfully entered child was not appended to branch
         assert_eq!(pre_dict.branch.len(), 1);
         assert!(Rc::ptr_eq(&pre_dict.branch[0], &root));
+
+        // backtracking must also report a missing parent route instead of panicking
+        let mut root = Node::new();
+        root.append_child(Node::new());
+        let mut pre_dict = PreDict::default();
+        assert!(pre_dict.update_from_node(Rc::new(root), None).unwrap());
+        assert!(matches!(pre_dict.advance().unwrap(), TraversalStep::Dict(_)));
+        pre_dict.route[0] = None;
+        Python::attach(|py| {
+            assert!(pre_dict.advance().is_err_and(|err| err.is_instance_of::<PyValueError>(py)));
+        });
     }
 
     #[test]
@@ -2591,6 +2630,14 @@ mod tests {
     #[test]
     fn test_next_dict_restores_predict_after_error() {
         Python::initialize();
+        // merging must report a missing or uninitialized join cache
+        let mut pre_dict = PreDict::default();
+        for dicts in [Vec::new(), vec![None]] {
+            pre_dict.join_dicts = dicts;
+            let error = pre_dict.joined_dict(0).expect_err("Expected an uninitialized join cache error");
+            Python::attach(|py| assert!(error.is_instance_of::<PyValueError>(py)));
+        }
+
         // a missing condition fails during initialization; string content fails during dictionary evaluation
         for (content_type, initialization_error) in [
             (ContentType::Node(Rc::new(Node::new())), true),
