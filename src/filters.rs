@@ -155,7 +155,7 @@ impl Filters {
     * ``ide, scsi`` is equivalent to ``scsi, ide``.
     */
     #[staticmethod]
-    pub fn parse_filter(tokens: Vec<Tokens>, line: Option<&str>, filename: &str, linenum: isize) -> PyResult<Vec<Vec<Vec<Label>>>> {
+    pub fn parse_filter(tokens: Vec<Tokens>, line: Option<&str>, filename: &str, linenum: Option<usize>) -> PyResult<Vec<Vec<Vec<Label>>>> {
         let mut or_filters = Vec::new();
         let mut and_filter = Vec::new();
         let mut con_filter = Vec::new();
@@ -187,7 +187,7 @@ impl Filters {
                                 "Expected identifier after '('".to_string(),
                                 Some(line.unwrap_or("<none>").to_string()),
                                 Some(filename.to_string()),
-                                Some(linenum),
+                                linenum,
                             )));
                         };
 
@@ -202,7 +202,7 @@ impl Filters {
                                             "Expected value after '='".to_string(),
                                             Some(line.unwrap_or("<none>").to_string()),
                                             Some(filename.to_string()),
-                                            Some(linenum),
+                                            linenum,
                                         )));
                                     }
                                 };
@@ -213,7 +213,7 @@ impl Filters {
                                             "Expected ')' after value".to_string(),
                                             Some(line.unwrap_or("<none>").to_string()),
                                             Some(filename.to_string()),
-                                            Some(linenum),
+                                            linenum,
                                         )));
                                     }
                                 }
@@ -227,7 +227,7 @@ impl Filters {
                                     "Expected '=' or ')' after '( with format like (xxx=yyy) or (xxx)'".to_string(),
                                     Some(line.unwrap_or("<none>").to_string()),
                                     Some(filename.to_string()),
-                                    Some(linenum),
+                                    linenum,
                                 )));
                             }
                         }
@@ -239,7 +239,7 @@ impl Filters {
                             "Complex filter doesn't have format like (xxx=yyy) or (xxx)'".to_string(),
                             Some(line.unwrap_or("<none>").to_string()),
                             Some(filename.to_string()),
-                            Some(linenum),
+                            linenum,
                         )));
                     };
 
@@ -253,7 +253,7 @@ impl Filters {
                             "Syntax Error: Expected '.' or '..' between identifiers".to_string(),
                             Some(line.unwrap_or("<none>").to_string()),
                             Some(filename.to_string()),
-                            Some(linenum),
+                            linenum,
                         )));
                     }
 
@@ -267,7 +267,7 @@ impl Filters {
                             "Syntax Error: Filter cannot start with '.'".to_string(),
                             Some(line.unwrap_or("<none>").to_string()),
                             Some(filename.to_string()),
-                            Some(linenum),
+                            linenum,
                         )));
                     }
                     dots += 1;
@@ -282,7 +282,7 @@ impl Filters {
                             "Syntax Error: Filter cannot start with ','".to_string(),
                             Some(line.unwrap_or("<none>").to_string()),
                             Some(filename.to_string()),
-                            Some(linenum),
+                            linenum,
                         )));
                     }
                     if !white_after_comma && dots > 0 {
@@ -290,7 +290,7 @@ impl Filters {
                             "Syntax Error: Expected identifier between '.' and ','".to_string(),
                             Some(line.unwrap_or("<none>").to_string()),
                             Some(filename.to_string()),
-                            Some(linenum),
+                            linenum,
                         )));
                     }
                     if !con_filter.is_empty() {
@@ -312,7 +312,7 @@ impl Filters {
                         "Unexpected token in filter".to_string(),
                         Some(line.unwrap_or("<none>").to_string()),
                         Some(filename.to_string()),
-                        Some(linenum),
+                        linenum,
                     )));
                 }
             }

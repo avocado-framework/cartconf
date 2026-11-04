@@ -29,7 +29,7 @@ pub struct ParserError {
 impl ParserError {
     #[new]
     #[pyo3(signature = (msg, line=None, filename=None, linenum=None))]
-    fn new(msg: String, line: Option<String>, filename: Option<String>, linenum: Option<isize>) -> Self {
+    fn new(msg: String, line: Option<String>, filename: Option<String>, linenum: Option<usize>) -> Self {
         Self { lexer_error: LexerError::new(msg, line, filename, linenum) }
     }
 
@@ -193,7 +193,7 @@ impl<'py> FromPyObject<'_, 'py> for ContentType {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ContentStep {
     filename: String,
-    linenum: isize,
+    linenum: Option<usize>,
     content_type: ContentType,
 }
 impl<'py> IntoPyObject<'py> for ContentStep {
@@ -211,7 +211,7 @@ impl<'py> FromPyObject<'_, 'py> for ContentStep {
     type Error = PyErr;
 
     fn extract(object: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Ok((filename, linenum, content_type)) = object.extract::<(String, isize, ContentType)>() {
+        if let Ok((filename, linenum, content_type)) = object.extract::<(String, Option<usize>, ContentType)>() {
             return Ok(ContentStep { filename, linenum, content_type });
         }
         Err(PyErr::new::<PyTypeError, _>(
@@ -331,7 +331,7 @@ impl Node {
         self.content.clone()
     }
 
-    pub fn add_content(&mut self, filename: String, linenum: isize, content_type: ContentType) {
+    pub fn add_content(&mut self, filename: String, linenum: Option<usize>, content_type: ContentType) {
         self.content.push(ContentStep { filename, linenum, content_type });
     }
 
@@ -656,7 +656,7 @@ impl Node {
                 "file does not exist or it's not a regular file".to_string(),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -701,7 +701,8 @@ impl Node {
         let next_line = lexer.get_rest_line_as_string_token()?;
         let next_line_str: String = next_line.string()?;
         if !next_line_str.is_empty() {
-            lexer.set_next_line(next_line_str, indent + 1, lexer.linenum as usize);
+            let linenum = lexer.linenum.ok_or_else(|| PyValueError::new_err("Missing line number"))?;
+            lexer.set_next_line(next_line_str, indent + 1, linenum);
         }
 
         // Create a new Node for the condition
@@ -758,7 +759,8 @@ impl Node {
         let next_line = lexer.get_rest_line_as_string_token()?;
         let next_line_str: String = next_line.string()?;
         if !next_line_str.is_empty() {
-            lexer.set_next_line(next_line_str, indent + 1, lexer.linenum as usize);
+            let linenum = lexer.linenum.ok_or_else(|| PyValueError::new_err("Missing line number"))?;
+            lexer.set_next_line(next_line_str, indent + 1, linenum);
         }
 
         // Create a new Node for the negative condition
@@ -796,7 +798,7 @@ impl Node {
                 "'variants' is not allowed inside a conditional block".to_string(),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -826,7 +828,7 @@ impl Node {
                         "Syntax ERROR expected '[' or ':'".to_string(),
                         lexer.line.clone(),
                         Some(lexer.filename.clone()),
-                        Some(lexer.linenum),
+                        lexer.linenum,
                     )));
                 }
                 variant_name = tokens[0].string()?;
@@ -882,7 +884,7 @@ impl Node {
                             "Syntax ERROR expected ']'".to_string(),
                             lexer.line.clone(),
                             Some(lexer.filename.clone()),
-                            Some(lexer.linenum),
+                            lexer.linenum,
                         )));
                     }
                 }
@@ -904,7 +906,7 @@ impl Node {
                         "Syntax ERROR expected [default=xxx]".to_string(),
                         lexer.line.clone(),
                         Some(lexer.filename.clone()),
-                        Some(lexer.linenum),
+                        lexer.linenum,
                     )));
                 }
             }
@@ -916,7 +918,7 @@ impl Node {
                 "Syntax ERROR expected ':'".to_string(),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -1154,7 +1156,7 @@ impl Node {
                 format!("Missing default variant {:?}", meta_default_values),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -1210,7 +1212,7 @@ pub fn parse(
     // Reasons:
     // 1. Escapes multiplying suffix operators
     // 2. Affects all elements in current block
-    let mut suffix: Option<(String, isize, Tokens)> = None;
+    let mut suffix: Option<(String, Option<usize>, Tokens)> = None;
 
     // Dictionary contains block of operation without collision with
     // other blocks or operations which increases speed almost twice.
@@ -1287,7 +1289,7 @@ pub fn parse(
                         "Syntax ERROR expected ':' or operand".to_string(),
                         lexer.line.clone(),
                         Some(lexer.filename.clone()),
-                        Some(lexer.linenum),
+                        lexer.linenum,
                     )));
                 }
             }
@@ -1390,7 +1392,7 @@ pub fn parse(
                     "Syntax ERROR expected".to_string(),
                     lexer.line.clone(),
                     Some(lexer.filename.clone()),
-                    Some(lexer.linenum),
+                    lexer.linenum,
                 )));
             }
         }
@@ -2561,7 +2563,7 @@ mod tests {
         Python::initialize();
         // malformed content as "no condition" conditional node inside another
         let mut child = Node::new();
-        child.add_content("<test>".to_string(), 1, ContentType::Node(Rc::new(Node::new())));
+        child.add_content("<test>".to_string(), Some(1), ContentType::Node(Rc::new(Node::new())));
         let mut root = Node::new();
         root.append_child(child);
         let root = Rc::new(root);
@@ -2653,7 +2655,7 @@ mod tests {
             // inject the invalid content step
             pre_dict.processed_content[0].as_mut().unwrap().push(ContentStep {
                 filename: "<test>".to_string(),
-                linenum: 1,
+                linenum: Some(1),
                 content_type,
             });
 

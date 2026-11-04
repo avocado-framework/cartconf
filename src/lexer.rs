@@ -76,19 +76,18 @@ impl Reader {
     }
 
     #[pyo3(signature = (prev_indent=None))]
-    pub fn get_next_line(&mut self, prev_indent: Option<usize>) -> (Option<String>, Option<usize>, isize) {
+    pub fn get_next_line(&mut self, prev_indent: Option<usize>) -> (Option<String>, Option<usize>, Option<usize>) {
         if let Some((line, indent, linenum)) = self.stored_line.take() {
-            return (Some(line), Some(indent), linenum as isize);
+            return (Some(line), Some(indent), Some(linenum));
         }
         if self.lines.is_empty() {
-            return (None, None, -1);
+            return (None, None, None);
         }
-        // TODO: unify line numbers to usize options to map -1 to None without casts
         if prev_indent.is_some_and(|prev_indent| self.lines[0].1 <= prev_indent) {
-            return (None, Some(self.lines[0].1), self.lines[0].2 as isize);
+            return (None, Some(self.lines[0].1), Some(self.lines[0].2));
         }
         let (line, indent, linenum) = self.lines.remove(0);
-        (Some(line), Some(indent), linenum as isize)
+        (Some(line), Some(indent), Some(linenum))
     }
 
     pub fn set_next_line(&mut self, line: String, indent: usize, linenum: usize) {
@@ -105,13 +104,13 @@ pub struct LexerError {
     msg: String,
     line: Option<String>,
     filename : Option<String>,
-    linenum : Option<isize>,
+    linenum : Option<usize>,
 }
 #[pymethods]
 impl LexerError {
     #[new]
     #[pyo3(signature = (msg, line=None, filename=None, linenum=None))]
-    pub fn new(msg: String, line: Option<String>, filename: Option<String>, linenum: Option<isize>) -> Self {
+    pub fn new(msg: String, line: Option<String>, filename: Option<String>, linenum: Option<usize>) -> Self {
         Self { msg, line, filename, linenum }
     }
 
@@ -161,7 +160,7 @@ pub struct Lexer {
     #[pyo3(get, set)]
     pub line: Option<String>,
     #[pyo3(get, set)]
-    pub linenum: isize,
+    pub linenum: Option<usize>,
     #[pyo3(get)]
     pub ignore_white: bool,
     #[pyo3(get, set)]
@@ -188,7 +187,7 @@ impl Lexer {
             reader,
             filename,
             line: None,
-            linenum: 0,
+            linenum: None,
             ignore_white: false,
             rest_as_string: false,
             prev_indent: None,
@@ -351,7 +350,7 @@ impl Lexer {
                                 ),
                                 Some(line.to_string()),
                                 Some(self.filename.clone()),
-                                Some(self.linenum),
+                                self.linenum,
                             )));
                         }
                     }
@@ -472,7 +471,7 @@ impl Lexer {
                         ),
                         Some(line.to_string()),
                         Some(self.filename.clone()),
-                        Some(self.linenum),
+                        self.linenum,
                     )));
                 }
             }
@@ -498,7 +497,7 @@ impl Lexer {
         let (line_opt, indent, linenum) = self.reader.get_next_line(self.prev_indent);
         self.line = line_opt.clone();
         self.linenum = linenum;
-        if let (Some(line), Some(indent)) = (line_opt, indent) {
+        if let (Some(line), Some(indent), Some(linenum)) = (line_opt, indent, linenum) {
             if self.pos == 0 {
                 token_queue.push(Tokens::LIndent(indent));
 
@@ -510,19 +509,8 @@ impl Lexer {
                         self.restart();
                     }
                     _ => {
-                        if linenum < 0 {
-                            return Err(PyErr::new::<LexerError, _>((
-                                format!(
-                                    "Cannot store negative line number '{}' at position {}",
-                                    linenum, self.pos,
-                                ),
-                                Some(line),
-                                Some(self.filename.clone()),
-                                Some(self.linenum),
-                            )));
-                        }
                         // Keep the current line as the next line to comply with the line state machine.
-                        self.reader.set_next_line(line, indent, linenum as usize);
+                        self.reader.set_next_line(line, indent, linenum);
                     }
                 }
             }
@@ -588,7 +576,7 @@ impl Lexer {
                 ),
                 self.line.clone(),
                 Some(self.filename.clone()),
-                Some(self.linenum),
+                self.linenum,
             )))
         }
     }
@@ -621,7 +609,7 @@ impl Lexer {
                     ),
                     self.line.clone(),
                     Some(self.filename.clone()),
-                    Some(self.linenum),
+                    self.linenum,
                 )));
             }
             if no_white && matches!(next_token, Tokens::LWhite(_)) {
@@ -681,7 +669,7 @@ impl Lexer {
                 ),
                 line: self.line.clone(),
                 filename: Some(self.filename.clone()),
-                linenum: Some(self.linenum),
+                linenum: self.linenum,
             });
         }
         Ok(())
