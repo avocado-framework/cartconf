@@ -1490,13 +1490,13 @@ pub struct PreDict {
     failed_cases: HashMap<u64, VecDeque<FailedCase>>,
     #[pyo3(get)]
     pub route: Vec<Option<usize>>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub joins: Vec<Option<Vec<ContentStep>>>,
     // TODO: refactor as we expanded to double option to complete the migration more easily
     #[allow(clippy::type_complexity)]
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub join_dicts: Vec<Option<Vec<Option<HashMap<ParamKey, ParamVal>>>>>,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub join_pre_dicts: Vec<Option<Vec<Option<PreDict>>>>,
 
     // whether to use default variants
