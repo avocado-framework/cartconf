@@ -1968,17 +1968,24 @@ impl PreDict {
     up to a blocking request for another joined pre-dictionary or up to termination.
     */
     fn advance(&mut self) -> PyResult<TraversalStep> {
-        if self.branch.is_empty() {
-            return Err(PyRuntimeError::new_err("Pre-dictionary needs at least one node"));
-        }
         if self.joins.len() != self.branch.len()
             || self.join_dicts.len() != self.branch.len()
             || self.join_pre_dicts.len() != self.branch.len()
+            || self.route.len() != self.branch.len()
+            || self.join_width.len() != self.branch.len()
+            || self.processed_content.len() != self.branch.len()
+            || self._ctx.len().checked_sub(1) != Some(self.branch.len())
+            || self._shortname.len().checked_sub(1) != Some(self.branch.len())
+            || self._dep.len().checked_sub(1) != Some(self.branch.len())
+            || self._content.len().checked_sub(1) != Some(self.branch.len())
+            || self._ctx_content.len().checked_sub(1) != Some(self.branch.len())
         {
             return Err(PyValueError::new_err("Inconsistent pre-dictionary state"));
         }
         loop {
-            let depth = self.branch.len() - 1;
+            let Some(depth) = self.branch.len().checked_sub(1) else {
+                return Err(PyRuntimeError::new_err("Pre-dictionary needs at least one node"));
+            };
             if self.joins[depth].is_some() != self.join_dicts[depth].is_some()
                 || self.joins[depth].is_some() != self.join_pre_dicts[depth].is_some()
             {
@@ -1998,6 +2005,9 @@ impl PreDict {
                     return Err(PyValueError::new_err("Inconsistent pre-dictionary join state"));
                 }
                 let width = self.join_width[depth];
+                if width > joins.len() {
+                    return Err(PyValueError::new_err("Inconsistent pre-dictionary join state"));
+                }
                 if width < joins.len() {
                     return Ok(TraversalStep::Join(depth, width));
                 }
@@ -2034,10 +2044,11 @@ impl PreDict {
                 return Ok(TraversalStep::Done);
             }
             self.reset_from_last_node();
-            let Some(child_index) = self.route[depth - 1].as_mut() else {
+            let Some(child_index) = self.route.last_mut().and_then(Option::as_mut) else {
                 return Err(PyValueError::new_err("Pre-dictionary parent route not initialized"));
             };
-            *child_index += 1;
+            *child_index = child_index.checked_add(1).ok_or_else(||
+                PyValueError::new_err("Pre-dictionary parent route out of bounds"))?;
         }
     }
 
@@ -2539,6 +2550,9 @@ mod tests {
             panic!("Expected the first join pre-dict");
         };
         let joined_node = Rc::clone(&pre_dict.branch[depth]);
+        let mut invalid = pre_dict.clone();
+        invalid.join_width[depth] = usize::MAX;
+        assert!(invalid.advance().is_err());
         // further advance calls for the same join location repeats the traversal step
         let TraversalStep::Join(depth, 0) = pre_dict.advance().unwrap() else {
             panic!("Expected the first join pre-dict");
@@ -2577,6 +2591,20 @@ mod tests {
         // seeding the valid root succeeds
         assert!(pre_dict.update_from_node(Rc::clone(&root), None).unwrap());
 
+        let invalidations: [fn(&mut PreDict); 11] = [
+            |p| p.route.clear(), |p| p.join_width.clear(), |p| p.processed_content.clear(),
+            |p| p.joins.clear(), |p| p.join_dicts.clear(), |p| p.join_pre_dicts.clear(),
+            |p| p._ctx.clear(), |p| p._shortname.clear(), |p| p._dep.clear(),
+            |p| p._content.clear(), |p| p._ctx_content.clear(),
+        ];
+        for invalidate in invalidations {
+            let mut invalid = pre_dict.clone();
+            invalidate(&mut invalid);
+            Python::attach(|py| {
+                assert!(invalid.advance().is_err_and(|err| err.is_instance_of::<PyValueError>(py)));
+            });
+        }
+
         // error raised by traversing into the invalid node must reach the caller
         let error = pre_dict.advance().err().expect("Expected a child-entry error");
         Python::attach(|py| assert!(error.is_instance_of::<PyTypeError>(py)));
@@ -2590,10 +2618,13 @@ mod tests {
         let mut pre_dict = PreDict::default();
         assert!(pre_dict.update_from_node(Rc::new(root), None).unwrap());
         assert!(matches!(pre_dict.advance().unwrap(), TraversalStep::Dict(_)));
-        pre_dict.route[0] = None;
-        Python::attach(|py| {
-            assert!(pre_dict.advance().is_err_and(|err| err.is_instance_of::<PyValueError>(py)));
-        });
+        for route in [None, Some(usize::MAX)] {
+            let mut invalid = pre_dict.clone();
+            invalid.route[0] = route;
+            Python::attach(|py| {
+                assert!(invalid.advance().is_err_and(|err| err.is_instance_of::<PyValueError>(py)));
+            });
+        }
     }
 
     #[test]
