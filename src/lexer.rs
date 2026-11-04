@@ -317,10 +317,10 @@ impl Lexer {
                 '<' | '+' | '?' | '~' => {
                     let should_push = if c == '?' {
                         // for ? check if followed by =, +, or < to handle three-char operators
-                        line[..self.pos].contains(" ") ||
+                        chars[..self.pos].contains(&' ') ||
                         (self.pos + 1 < len && matches!(chars[self.pos + 1], '=' | '+' | '<'))
                     } else {
-                        line[..self.pos].contains(" ") ||
+                        chars[..self.pos].contains(&' ') ||
                         (self.pos + 1 < len && chars[self.pos + 1] == '=')
                     };
                     if should_push {
@@ -474,11 +474,6 @@ impl Lexer {
                         self.linenum,
                     )));
                 }
-            }
-            if self.rest_as_string {
-                self.rest_as_string = false;
-                tokens.push(Tokens::LString(line[pos..].trim_start().to_string()));
-                self.pos = len;
             }
         }
         if !self.char_buffer.is_empty() {
