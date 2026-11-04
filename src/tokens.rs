@@ -344,9 +344,9 @@ impl<'py> FromPyObject<'_, 'py> for ParamVal {
 #[pyclass(from_py_object,eq)]
 #[derive(Debug, PartialEq, Clone)]
 pub enum Tokens {
-    LIndent(isize),
+    LIndent(usize),
     LEndL(),
-    LEndBlock(isize),
+    LEndBlock(Option<usize>),
     LIdentifier(String),
     LWhite(String),
     LString(String),
@@ -390,7 +390,8 @@ impl fmt::Display for Tokens {
         match self {
             Tokens::LIndent(length) => write!(f, "indent {length}"),
             Tokens::LEndL() => write!(f, "endl"),
-            Tokens::LEndBlock(length) => write!(f, "endb {length}"),
+            Tokens::LEndBlock(Some(length)) => write!(f, "endb {length}"),
+            Tokens::LEndBlock(None) => write!(f, "endb"),
             Tokens::LIdentifier(string) => write!(f, "Identifier re([A-Za-z0-9][A-Za-z0-9_-]*) \"{string}\""),
             Tokens::LWhite(string) => write!(f, "WhiteSpace re(\\s) \"{string}\""),
             Tokens::LString(string) => write!(f, "String re(.+) \"{string}\""),
@@ -488,7 +489,7 @@ impl Tokens {
                 // continue to heuristic matches below
                 let id = other.to_string();
                 if id.starts_with("indent") { return Tokens::LIndent(0); }
-                if id.starts_with("endb") { return Tokens::LEndBlock(0); }
+                if id.starts_with("endb") { return Tokens::LEndBlock(Some(0)); }
                 if id.starts_with("Identifier") { return Tokens::LIdentifier(String::new()); }
                 if id.starts_with("WhiteSpace") { return Tokens::LWhite(String::new()); }
                 if id.starts_with("String") { return Tokens::LString(String::new()); }
@@ -517,9 +518,9 @@ impl Tokens {
     }
 
     #[getter]
-    pub fn length(&self) -> PyResult<isize> {
+    pub fn length(&self) -> PyResult<Option<usize>> {
         match self {
-            Tokens::LIndent(length) => Ok(*length),
+            Tokens::LIndent(length) => Ok(Some(*length)),
             Tokens::LEndBlock(length) => Ok(*length),
             _ => Err(PyAttributeError::new_err("length is not a valid attribute for this token")),
         }

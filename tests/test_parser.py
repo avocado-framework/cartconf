@@ -206,8 +206,8 @@ class NodeTest(unittest.TestCase):
         op3 = parser.LPrepend("e", "f")
         content = [
             ("<string>", 1, op1),
-            ("<string>", 2, op2),
-            ("<string>", 3, op3)
+            ("<string>", sys.maxsize + 1, op2),
+            ("<string>", None, op3)
         ]
         node.swap_content(content)
 
@@ -215,6 +215,8 @@ class NodeTest(unittest.TestCase):
         new_content, failed_filters, _ = node.process_content(ctx, labels)
         self.assertEqual(new_content, content)
         self.assertEqual(failed_filters, [])
+        with self.assertRaises(OverflowError):
+            node.add_content("<string>", -1, op1)
 
     def test_process_content_only_filter(self):
         """Check that a context matching only filter is removed or else failed."""
@@ -417,7 +419,7 @@ class NodeTest(unittest.TestCase):
         node.var_name = [parser.Label("test_var_name")]
         node.add_content("test_content", 0, parser.LString("test_content"))
         dump_str = node.dump(2)
-        expected_str = "  name: [test_name]\n  variable name: [test_var_name]\n  content: [ContentStep { filename: \"test_content\", linenum: 0, content_type: Tokens(LString(\"test_content\")) }]"
+        expected_str = "  name: [test_name]\n  variable name: [test_var_name]\n  content: [ContentStep { filename: \"test_content\", linenum: Some(0), content_type: Tokens(LString(\"test_content\")) }]"
         self.assertEqual(expected_str, dump_str)
 
     def test_dump_with_recurse(self):
@@ -1147,15 +1149,15 @@ class ReaderTest(unittest.TestCase):
     def test_get_next_line(self):
         s = "line1\nline2\n  line3\nline4\n"
         reader = parser.Reader(content=s)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line1")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 1)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line2")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 2)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line3")
         self.assertEqual(indent, 2)
         self.assertEqual(linenum, 3)
@@ -1163,24 +1165,26 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(line, None)
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line4")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, None)
-        self.assertEqual(indent, -1)
-        self.assertEqual(linenum, -1)
+        self.assertIsNone(indent)
+        self.assertIsNone(linenum)
 
     def test_set_next_line(self):
         s = "line1\nline2\n  line3\n"
         reader = parser.Reader(content=s)
         reader.set_next_line("new line", 1, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "new line")
         self.assertEqual(indent, 1)
         self.assertEqual(linenum, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        reader.set_next_line("wide line", sys.maxsize + 1, sys.maxsize + 1)
+        self.assertEqual(reader.get_next_line(None), ("wide line", sys.maxsize + 1, sys.maxsize + 1))
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line1")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 1)
@@ -1195,14 +1199,24 @@ class LexerTest(unittest.TestCase):
     def test_initialization(self):
         self.assertEqual(self.lexer.filename, "<string>")
         self.assertIsNone(self.lexer.line)
-        self.assertEqual(self.lexer.linenum, 0)
+        self.assertIsNone(self.lexer.linenum)
         self.assertFalse(self.lexer.ignore_white)
         self.assertFalse(self.lexer.rest_as_string)
-        self.assertEqual(self.lexer.prev_indent, -1)
+        self.assertIsNone(self.lexer.prev_indent)
 
     def test_set_prev_indent(self):
         self.lexer.set_prev_indent(4)
         self.assertEqual(self.lexer.prev_indent, 4)
+        token = self.lexer.get_next_token()
+        self.assertIsInstance(token, parser.LEndBlock)
+        self.assertEqual(token.length, 0)
+        self.lexer.set_prev_indent(None)
+        self.assertIsNone(self.lexer.prev_indent)
+        token = self.lexer.get_next_token()
+        self.assertIsInstance(token, parser.LIndent)
+        self.assertEqual(token.length, 0)
+        with self.assertRaises(OverflowError):
+            self.lexer.set_prev_indent(-1)
 
     def test_match_line(self):
         line = "only test"
@@ -1338,8 +1352,17 @@ class LexerTest(unittest.TestCase):
     def test_check_token(self):
         token = parser.LIdentifier("test")
         self.lexer.check_token(token, [parser.Tokens.default("Identifier")])
-        with self.assertRaises(parser.LexerError):
+        self.lexer.set_next_line("key = value", 0, sys.maxsize + 1)
+        self.lexer.get_until([parser.Tokens.default("endl")])
+        self.assertEqual(self.lexer.linenum, sys.maxsize + 1)
+        with self.assertRaisesRegex(parser.LexerError, f"<string>:{sys.maxsize + 1}"):
             self.lexer.check_token(token, [parser.Tokens.default("indent")])
+        self.lexer.flush_until([parser.Tokens.default("endb")])
+        self.assertIsNone(self.lexer.linenum)
+        with self.assertRaisesRegex(parser.LexerError, "<string>:unknown"):
+            self.lexer.check_token(token, [parser.Tokens.default("indent")])
+        with self.assertRaises(OverflowError):
+            self.lexer.linenum = -1
 
 
 class ParserTest(unittest.TestCase):
