@@ -1233,6 +1233,20 @@ class LexerTest(unittest.TestCase):
         self.assertEqual(len(tokens), 1)
         self.assertIsInstance(tokens[0], parser.LIdentifier)
 
+        for rest_as_string in (False, True):
+            for position in (2, sys.maxsize * 2 + 1):
+                lexer = parser.Lexer(content="")
+                lexer.rest_as_string = rest_as_string
+                with self.assertRaisesRegex(parser.LexerError, "out of bounds"):
+                    lexer.match_line("é", position)
+        self.lexer.pos = sys.maxsize * 2 + 1
+        with self.assertRaisesRegex(parser.LexerError, "out of bounds"):
+            self.lexer.match_line(line, 0)
+
+        lexer = parser.Lexer(content="")
+        with self.assertRaisesRegex(parser.LexerError, "Unterminated quoted string"):
+            lexer.match_line('"unclosed', 0)
+
     def test_get_next_token(self):
         next = self.lexer.get_next_token
         token = next()

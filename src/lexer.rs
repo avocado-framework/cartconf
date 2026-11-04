@@ -214,6 +214,15 @@ impl Lexer {
         let mut tokens = Vec::new();
         let chars: Vec<char> = line.chars().collect();
         let len = chars.len();
+        let position = if self.kind == LineKind::Unknown { pos } else { self.pos };
+        if position > len {
+            return Err(PyErr::new::<LexerError, _>((
+                format!("Position {position} out of bounds for line of length {len}"),
+                Some(line.to_string()),
+                Some(self.filename.clone()),
+                self.linenum,
+            )));
+        }
 
         if self.kind == LineKind::Unknown {
             self.pos = pos;
@@ -455,6 +464,14 @@ impl Lexer {
                     while self.pos < len && chars[self.pos] != '"' {
                         s.push(chars[self.pos]);
                         self.pos += 1;
+                    }
+                    if self.pos == len {
+                        return Err(PyErr::new::<LexerError, _>((
+                            "Unterminated quoted string".to_string(),
+                            Some(line.to_string()),
+                            Some(self.filename.clone()),
+                            self.linenum,
+                        )));
                     }
                     self.pos += 1; // skip closing quote
                     tokens.push(Tokens::LString(s));
