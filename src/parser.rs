@@ -550,7 +550,7 @@ impl Node {
         // strip surrounding quotes if present
         let first = value_str.chars().next().unwrap_or(' ');
         let last = value_str.chars().last().unwrap_or(' ');
-        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+        if value_str.len() >= 2 && ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
             value_str = value_str[1..value_str.len() - 1].to_string();
         }
 
