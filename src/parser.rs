@@ -520,6 +520,9 @@ impl Node {
                 format!("Expected LIdentifier token but got {}", token)
             )),
         };
+        let Some(op) = identifier.last() else {
+            return Err(PyValueError::new_err("Empty identifier"));
+        };
         let identifier_str = if identifier.len() == 1 {
             token_str
         } else {
@@ -552,12 +555,6 @@ impl Node {
         }
 
         // Construct operator instance by likeness of the provided one
-        let op: &Tokens = match identifier.last() {
-            Some(last_token) => last_token,
-            None => {
-                return Err(PyValueError::new_err("Empty identifier"));
-            }
-        };
         let op_obj = op.like(identifier_str.clone(), value_str.clone())?;
 
         // If it's an LSet and value has no '$', apply directly to dict
@@ -2258,6 +2255,11 @@ mod tests {
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
         dict.insert_str("key1", "value1".to_string().into());
+
+        let error = node.apply_operator(Vec::new(), token.clone(), &mut lexer, HashMap::new())
+            .expect_err("Expected an empty identifier error");
+        Python::initialize();
+        Python::attach(|py| assert!(error.is_instance_of::<PyValueError>(py)));
 
         // apply_operator should add key2 to dict directly (optimized path)
         dict = node.apply_operator(identifier, token, &mut lexer, dict).expect("apply_operator failed");
