@@ -516,6 +516,12 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(pd.branch, [node])
         self.assertIsNone(pd.route[-1])
 
+        seeded = parser.PreDict(ctx=[parser.Label("seed")])
+        for _ in range(2):
+            seeded.reset_from_last_node()
+        self.assertTrue(seeded.update_from_node(node))
+        self.assertEqual(seeded.get_dicts()["name"], "seed.n")
+
     def test_update_from_node_failed(self):
         pd = parser.PreDict()
 

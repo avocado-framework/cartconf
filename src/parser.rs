@@ -1619,6 +1619,9 @@ impl PreDict {
     }
 
     fn reset_from_last_node(&mut self) {
+        if self.branch.is_empty() {
+            return;
+        }
         self.branch.pop();
         self.processed_content.pop();
         self.join_width.pop();
