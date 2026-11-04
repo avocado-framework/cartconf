@@ -722,18 +722,13 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(pre_dict.route, [2])
 
     def test_get_dicts_joined(self):
-        self.parser.parse_string("variants:\n  - test1:\n    key1 = value1\n  - test2:\n    key2 = value2\n")
-        self.parser.filename = "testfile"
-        joins = [(self.parser.filename, 1, parser.OnlyFilter([[[parser.Label("test1")]]], "test1")),
-                 (self.parser.filename, 1, parser.OnlyFilter([[[parser.Label("test2")]]], "test2"))]
+        self.parser.parse_string("variants:\n  - test1:\n    key1 = value1\n  - test2:\n    key2 = value2\njoin test1 test2\n")
+        filename, linenum, join_filter = self.parser.node.get_content()[-1]
+        joins = [(filename, linenum, parser.OnlyFilter([[[parser.Label("test1")]]], join_filter.line)),
+                 (filename, linenum, parser.OnlyFilter([[[parser.Label("test2")]]], join_filter.line))]
         pre_dict = parser.PreDict()
 
         pre_dict.update_from_node(self.parser.node)
-        # the python-rust barrier requires copying or working on copies so replace entirely
-        pre_dict.joins = [joins]
-        pre_dict.join_dicts = [[None for _ in joins]]
-        pre_dict.join_pre_dicts = [[None for _ in joins]]
-
         d = pre_dict.get_dicts()
         self.assertEqual(d["name"], "test1.test2")
         self.assertEqual(d["key1"], "value1")
@@ -747,9 +742,9 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(len(pre_dict.join_pre_dicts), 1)
         self.assertEqual(len(pre_dict.join_pre_dicts[-1]), 2)
         self.assertEqual(pre_dict.join_pre_dicts[-1][0].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][0].content[0], joins[0])
+        self.assertIn(joins[0], pre_dict.join_pre_dicts[-1][0].content)
         self.assertEqual(pre_dict.join_pre_dicts[-1][1].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][1].content[0], joins[1])
+        self.assertIn(joins[1], pre_dict.join_pre_dicts[-1][1].content)
 
     def test_get_dicts_joined_with_initial_state(self):
         for nested in (False, True):
@@ -793,17 +788,13 @@ class PreDictTest(unittest.TestCase):
                     ka = va
                 - b:
                     kb = vb
+            join a b
         """)
-        self.parser.filename = "testfile"
-        joins = [(self.parser.filename, 1, parser.OnlyFilter([[[parser.Label("a")]]], "test1")),
-                 (self.parser.filename, 1, parser.OnlyFilter([[[parser.Label("b")]]], "test2"))]
+        filename, linenum, join_filter = self.parser.node.get_content()[-1]
+        joins = [(filename, linenum, parser.OnlyFilter([[[parser.Label("a")]]], join_filter.line)),
+                 (filename, linenum, parser.OnlyFilter([[[parser.Label("b")]]], join_filter.line))]
         pre_dict = parser.PreDict()
         pre_dict.update_from_node(self.parser.node)
-        # the python-rust barrier requires copying or working on copies so replace entirely
-        pre_dict.joins = [joins]
-        pre_dict.join_dicts = [[None for _ in joins]]
-        pre_dict.join_pre_dicts = [[None for _ in joins]]
-
         d = pre_dict.get_dicts()
         self.assertEqual(d["name"], "a.test1.b.test1")
         # b variant contains overwriting default value for ka
@@ -820,9 +811,9 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(len(pre_dict.join_pre_dicts), 1)
         self.assertEqual(len(pre_dict.join_pre_dicts[-1]), 2)
         self.assertEqual(pre_dict.join_pre_dicts[-1][0].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][0].content[0], joins[0])
+        self.assertIn(joins[0], pre_dict.join_pre_dicts[-1][0].content)
         self.assertEqual(pre_dict.join_pre_dicts[-1][1].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][1].content[0], joins[1])
+        self.assertIn(joins[1], pre_dict.join_pre_dicts[-1][1].content)
 
         d = pre_dict.get_dicts()
         self.assertEqual(d["name"], "a.test1.b.test2")
@@ -841,9 +832,9 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(len(pre_dict.join_pre_dicts), 1)
         self.assertEqual(len(pre_dict.join_pre_dicts[-1]), 2)
         self.assertEqual(pre_dict.join_pre_dicts[-1][0].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][0].content[0], joins[0])
+        self.assertIn(joins[0], pre_dict.join_pre_dicts[-1][0].content)
         self.assertEqual(pre_dict.join_pre_dicts[-1][1].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][1].content[0], joins[1])
+        self.assertIn(joins[1], pre_dict.join_pre_dicts[-1][1].content)
 
         d = pre_dict.get_dicts()
         self.assertEqual(d["name"], "a.test2.b.test1")
@@ -862,9 +853,9 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(len(pre_dict.join_pre_dicts), 1)
         self.assertEqual(len(pre_dict.join_pre_dicts[-1]), 2)
         self.assertEqual(pre_dict.join_pre_dicts[-1][0].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][0].content[0], joins[0])
+        self.assertIn(joins[0], pre_dict.join_pre_dicts[-1][0].content)
         self.assertEqual(pre_dict.join_pre_dicts[-1][1].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][1].content[0], joins[1])
+        self.assertIn(joins[1], pre_dict.join_pre_dicts[-1][1].content)
 
         d = pre_dict.get_dicts()
         self.assertEqual(d["name"], "a.test2.b.test2")
@@ -882,9 +873,9 @@ class PreDictTest(unittest.TestCase):
         self.assertEqual(len(pre_dict.join_pre_dicts), 1)
         self.assertEqual(len(pre_dict.join_pre_dicts[-1]), 2)
         self.assertEqual(pre_dict.join_pre_dicts[-1][0].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][0].content[0], joins[0])
+        self.assertIn(joins[0], pre_dict.join_pre_dicts[-1][0].content)
         self.assertEqual(pre_dict.join_pre_dicts[-1][1].branch[0], self.parser.node)
-        self.assertEqual(pre_dict.join_pre_dicts[-1][1].content[0], joins[1])
+        self.assertIn(joins[1], pre_dict.join_pre_dicts[-1][1].content)
 
         self.assertIsNone(pre_dict.get_dicts())
         self.assertIsNone(pre_dict.get_dicts())
@@ -992,7 +983,7 @@ class PreDictTest(unittest.TestCase):
         self.assertIsNone(pre_dict.get_dicts())
         self.assertIsNone(copied.get_dicts())
 
-    def test_get_dicts_inconsistent_predict_state(self):
+    def test_get_dicts_readonly_predict_state(self):
         pre_dict = parser.PreDict()
         with self.assertRaisesRegex(RuntimeError, "Pre-dictionary needs at least one node"):
             pre_dict.get_dicts()
@@ -1003,7 +994,8 @@ class PreDictTest(unittest.TestCase):
         )
         self.assertTrue(pre_dict.update_from_tree(self.parser.ast))
         self.assertEqual(pre_dict.get_dicts()["name"], "a.x.b.x")
-        for field in ("branch", "route", "ctx", "shortname", "content", "final_content", "dep"):
+        for field in ("branch", "route", "ctx", "shortname", "content", "final_content", "dep",
+                      "joins", "join_dicts", "join_pre_dicts"):
             with self.subTest(readonly=field):
                 with self.assertRaises(AttributeError):
                     setattr(pre_dict, field, [])
@@ -1012,31 +1004,8 @@ class PreDictTest(unittest.TestCase):
         remaining = list(iter(copied.get_dicts, None))
         self.assertEqual([d["name"] for d in remaining],
                          ["a.x.b.y", "a.y.b.x", "a.y.b.y"])
-        for field in ("joins", "join_dicts", "join_pre_dicts"):
-            for case in ("missing_branch_frame", "extra_branch_frame", "uninitialized_join_frame",
-                         "empty_components", "missing_component", "extra_component"):
-                with self.subTest(field=field, case=case):
-                    current = copy.copy(pre_dict)
-                    original = getattr(current, field)
-                    invalid = {
-                        "missing_branch_frame": [],
-                        "extra_branch_frame": original + [None],
-                        "uninitialized_join_frame": [None],
-                        "empty_components": [[]],
-                        "missing_component": [original[0][:-1]],
-                        "extra_component": [original[0] + original[0][:1]],
-                    }[case]
-                    setattr(current, field, invalid)
-                    error = ("Inconsistent pre-dictionary state"
-                             if case in ("missing_branch_frame", "extra_branch_frame")
-                             else "Inconsistent pre-dictionary join state")
-                    with self.assertRaisesRegex(ValueError, error):
-                        current.get_dicts()
-                    self.assertEqual(current.branch, pre_dict.branch)
-                    self.assertEqual(current.route, pre_dict.route)
-                    setattr(current, field, original)
-                    self.assertEqual(list(iter(current.get_dicts, None)), remaining)
-                    self.assertIsNone(current.get_dicts())
+        self.assertEqual(list(iter(pre_dict.get_dicts, None)), remaining)
+        self.assertIsNone(pre_dict.get_dicts())
 
     def test_get_dicts_zero(self):
         self.assertEqual(list(self.parser.get_dicts_gen()), [])
