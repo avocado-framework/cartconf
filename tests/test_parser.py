@@ -1751,6 +1751,71 @@ class ParserTest(unittest.TestCase):
                           [],
                           True)
 
+    def test_variant_defaults_expansion(self):
+        config = """
+            variants guest_os [default=linux]:
+              - linux:
+              - windows:
+            variants host_os:
+              - linux:
+              - @windows:
+        """
+        all_systems = ["linux", "windows"]
+        cases = [
+            (False, ["host_os"], all_systems, all_systems),
+            (True, ["guest_os"], ["windows"], all_systems),
+            (True, ["host_os"], all_systems, ["linux"]),
+            (True, ["guest_os", "host_os"], all_systems, all_systems),
+            (True, ["missing"], ["windows"], ["linux"]),
+        ]
+        with tempfile.NamedTemporaryFile(mode="w") as temp_file:
+            temp_file.write(config)
+            temp_file.flush()
+            for from_file in (False, True):
+                for defaults, expand_defaults, hosts, guests in cases:
+                    with self.subTest(from_file=from_file, defaults=defaults,
+                                      expand_defaults=expand_defaults):
+                        p = parser.Parser(defaults=defaults, expand_defaults=expand_defaults)
+                        if from_file:
+                            p.parse_file(temp_file.name)
+                        else:
+                            p.parse_string(config)
+                        self.assertEqual(
+                            [(d["host_os"], d["guest_os"]) for d in p.get_dicts_gen()],
+                            [(host, guest) for host in hosts for guest in guests],
+                        )
+
+    def test_variant_defaults_expansion_nested_join(self):
+        config = """
+            variants guest_os [default=linux]:
+              - linux:
+              - windows:
+            variants:
+              - client:
+              - server:
+                  variants mode:
+                    - @fast:
+                    - slow:
+            join client server
+        """
+        all_systems = ["linux", "windows"]
+        all_modes = ["fast", "slow"]
+        cases = [
+            ([], ["linux"], ["fast"]),
+            (["guest_os"], all_systems, ["fast"]),
+            (["mode"], ["linux"], all_modes),
+            (["guest_os", "mode"], all_systems, all_modes),
+        ]
+        for expand_defaults, systems, modes in cases:
+            with self.subTest(expand_defaults=expand_defaults):
+                p = parser.Parser(defaults=True, expand_defaults=expand_defaults)
+                p.parse_string(config)
+                self.assertEqual(
+                    [d["name"] for d in p.get_dicts_gen()],
+                    [f"client.(guest_os={client}).server.(mode={mode}).(guest_os={server})"
+                     for client in systems for mode in modes for server in systems],
+                )
+
     def test_del(self):
         self._compare_string_config("""
             variants tests:
