@@ -15,7 +15,7 @@ mod tests {
     #[test]
     fn test_parse_dicts() {
         let dicts = parse_dicts(
-            "".to_string(), "param = val\n".to_string(), -1, false, None
+            "".to_string(), "param = val\n".to_string(), None, false, None
         ).unwrap();
         assert_eq!(dicts.len(), 1);
         assert_eq!(dicts[0].len(), 4);
@@ -31,7 +31,7 @@ mod tests {
 fn parse_dicts(
     cfgfile: String,
     cfgstr: String,
-    prev_indent: isize,
+    prev_indent: Option<usize>,
     defaults: bool,
     expand_defaults: Option<Vec<String>>,
 ) -> PyResult<Vec<HashMap<tokens::ParamKey, tokens::ParamVal>>> {

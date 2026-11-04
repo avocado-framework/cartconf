@@ -75,20 +75,20 @@ impl Reader {
         })
     }
 
-    pub fn get_next_line(&mut self, prev_indent: isize) -> (Option<String>, isize, isize) {
+    #[pyo3(signature = (prev_indent=None))]
+    pub fn get_next_line(&mut self, prev_indent: Option<usize>) -> (Option<String>, Option<usize>, isize) {
         if let Some((line, indent, linenum)) = self.stored_line.take() {
-            return (Some(line), indent as isize, linenum as isize);
+            return (Some(line), Some(indent), linenum as isize);
         }
         if self.lines.is_empty() {
-            return (None, -1, -1);
+            return (None, None, -1);
         }
-        // TODO: converting usize to isize can also overflow, unify all indents and linenums
-        // to usize option to map -1 to None
-        if self.lines[0].1 as isize <= prev_indent {
-            return (None, self.lines[0].1 as isize, self.lines[0].2 as isize);
+        // TODO: unify line numbers to usize options to map -1 to None without casts
+        if prev_indent.is_some_and(|prev_indent| self.lines[0].1 <= prev_indent) {
+            return (None, Some(self.lines[0].1), self.lines[0].2 as isize);
         }
         let (line, indent, linenum) = self.lines.remove(0);
-        (Some(line), indent as isize, linenum as isize)
+        (Some(line), Some(indent), linenum as isize)
     }
 
     pub fn set_next_line(&mut self, line: String, indent: usize, linenum: usize) {
@@ -167,7 +167,7 @@ pub struct Lexer {
     #[pyo3(get, set)]
     pub rest_as_string: bool,
     #[pyo3(get)]
-    pub prev_indent: isize,
+    pub prev_indent: Option<usize>,
     pub token_queue: VecDeque<Tokens>,
     // state machine parameters for the iterator
     #[pyo3(get, set)]
@@ -191,7 +191,7 @@ impl Lexer {
             linenum: 0,
             ignore_white: false,
             rest_as_string: false,
-            prev_indent: -1,
+            prev_indent: None,
             token_queue: VecDeque::new(),
             pos : 0,
             char_buffer : String::new(),
@@ -205,7 +205,8 @@ impl Lexer {
         self.pos = 0;
     }
 
-    pub fn set_prev_indent(&mut self, prev_indent: isize) {
+    #[pyo3(signature = (prev_indent=None))]
+    pub fn set_prev_indent(&mut self, prev_indent: Option<usize>) {
         self.prev_indent = prev_indent;
     }
 
@@ -497,7 +498,7 @@ impl Lexer {
         let (line_opt, indent, linenum) = self.reader.get_next_line(self.prev_indent);
         self.line = line_opt.clone();
         self.linenum = linenum;
-        if let Some(line) = line_opt {
+        if let (Some(line), Some(indent)) = (line_opt, indent) {
             if self.pos == 0 {
                 token_queue.push(Tokens::LIndent(indent));
 
@@ -509,17 +510,6 @@ impl Lexer {
                         self.restart();
                     }
                     _ => {
-                        if indent < 0 {
-                            return Err(PyErr::new::<LexerError, _>((
-                                format!(
-                                    "Cannot store negative indent '{}' at position {}",
-                                    indent, self.pos,
-                                ),
-                                Some(line),
-                                Some(self.filename.clone()),
-                                Some(self.linenum),
-                            )));
-                        }
                         if linenum < 0 {
                             return Err(PyErr::new::<LexerError, _>((
                                 format!(
@@ -532,7 +522,7 @@ impl Lexer {
                             )));
                         }
                         // Keep the current line as the next line to comply with the line state machine.
-                        self.reader.set_next_line(line, indent as usize, linenum as usize);
+                        self.reader.set_next_line(line, indent, linenum as usize);
                     }
                 }
             }

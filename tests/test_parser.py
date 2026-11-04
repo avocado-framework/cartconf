@@ -1147,15 +1147,15 @@ class ReaderTest(unittest.TestCase):
     def test_get_next_line(self):
         s = "line1\nline2\n  line3\nline4\n"
         reader = parser.Reader(content=s)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line1")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 1)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line2")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 2)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line3")
         self.assertEqual(indent, 2)
         self.assertEqual(linenum, 3)
@@ -1163,24 +1163,26 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(line, None)
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line4")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, None)
-        self.assertEqual(indent, -1)
+        self.assertIsNone(indent)
         self.assertEqual(linenum, -1)
 
     def test_set_next_line(self):
         s = "line1\nline2\n  line3\n"
         reader = parser.Reader(content=s)
         reader.set_next_line("new line", 1, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "new line")
         self.assertEqual(indent, 1)
         self.assertEqual(linenum, 4)
-        line, indent, linenum = reader.get_next_line(-1)
+        reader.set_next_line("wide line", sys.maxsize + 1, 5)
+        self.assertEqual(reader.get_next_line(None), ("wide line", sys.maxsize + 1, 5))
+        line, indent, linenum = reader.get_next_line(None)
         self.assertEqual(line, "line1")
         self.assertEqual(indent, 0)
         self.assertEqual(linenum, 1)
@@ -1198,11 +1200,21 @@ class LexerTest(unittest.TestCase):
         self.assertEqual(self.lexer.linenum, 0)
         self.assertFalse(self.lexer.ignore_white)
         self.assertFalse(self.lexer.rest_as_string)
-        self.assertEqual(self.lexer.prev_indent, -1)
+        self.assertIsNone(self.lexer.prev_indent)
 
     def test_set_prev_indent(self):
         self.lexer.set_prev_indent(4)
         self.assertEqual(self.lexer.prev_indent, 4)
+        token = self.lexer.get_next_token()
+        self.assertIsInstance(token, parser.LEndBlock)
+        self.assertEqual(token.length, 0)
+        self.lexer.set_prev_indent(None)
+        self.assertIsNone(self.lexer.prev_indent)
+        token = self.lexer.get_next_token()
+        self.assertIsInstance(token, parser.LIndent)
+        self.assertEqual(token.length, 0)
+        with self.assertRaises(OverflowError):
+            self.lexer.set_prev_indent(-1)
 
     def test_match_line(self):
         line = "only test"
