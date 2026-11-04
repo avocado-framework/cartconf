@@ -2,14 +2,13 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{self};
-use std::mem::discriminant;
 use std::sync::LazyLock;
 use regex::Regex;
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyException;
 
-use crate::tokens::Tokens;
+use crate::tokens::{TokenKind, Tokens};
 
 #[pyclass]
 pub struct Reader {
@@ -543,6 +542,7 @@ impl Lexer {
         token: Tokens,
         check_tokens: Vec<Tokens>,
     ) -> PyResult<()> {
+        let check_tokens: Vec<_> = check_tokens.iter().map(Tokens::kind).collect();
         self.check_token(&token, &check_tokens).map_err(|err|
             PyErr::new::<LexerError, _>((
                 err.msg,
@@ -554,10 +554,63 @@ impl Lexer {
     }
 
     /// Get the next token from one or more tokenized lines.
-    #[pyo3(signature = (check_tokens=None, no_white=None))]
-    pub fn get_next_token(
+    #[pyo3(name = "get_next_token", signature = (check_tokens=None, no_white=None))]
+    pub fn get_next_token_py(
         &mut self,
         check_tokens: Option<Vec<Tokens>>,
+        no_white: Option<bool>,
+    ) -> PyResult<Tokens> {
+        let check_tokens = check_tokens.map(|tokens| tokens.iter().map(Tokens::kind).collect::<Vec<_>>());
+        self.get_next_token(check_tokens.as_deref(), no_white)
+    }
+
+    /// Get all tokens until disallowed tokens or end tokens are found.
+    #[pyo3(name = "get_until", signature = (end_tokens, check_tokens=None, no_white=None))]
+    pub fn get_until_py(
+        &mut self,
+        end_tokens: Vec<Tokens>,
+        check_tokens: Option<Vec<Tokens>>,
+        no_white: Option<bool>,
+    ) -> PyResult<Vec<Tokens>> {
+        let end_tokens: Vec<_> = end_tokens.iter().map(Tokens::kind).collect();
+        let check_tokens = check_tokens.map(|tokens| tokens.iter().map(Tokens::kind).collect::<Vec<_>>());
+        self.get_until(&end_tokens, check_tokens.as_deref(), no_white)
+    }
+
+    /// Skip all tokens until end tokens are found.
+    pub fn flush_until(&mut self, end_tokens: Vec<Tokens>) -> PyResult<()> {
+        let _ = self.get_until_py(end_tokens, None, None)?;
+        Ok(())
+    }
+
+    /// Get all tokens from the rest of the line terminating only at an end-of-line token.
+    #[pyo3(signature = (no_white=None))]
+    pub fn get_rest_line(&mut self, no_white: Option<bool>) -> PyResult<Vec<Tokens>> {
+        self.get_until(&[], None, no_white)
+    }
+
+    /// Get a string token from the rest of the line.
+    pub fn get_rest_line_as_string_token(&mut self) -> PyResult<Tokens> {
+        self.rest_as_string = true;
+        let lstring: Tokens = {
+            let remainder_str = self.get_next_token(Some(&[TokenKind::LString]), None)?;
+            let _ = self.get_next_token(Some(&[TokenKind::LEndL]), None)?;
+            remainder_str
+        };
+        Ok(lstring)
+    }
+
+    /// Make the next line to get return the given line instead of the real next line.
+    pub fn set_next_line(&mut self, line: String, indent: usize, linenum: usize) {
+        self.reader.set_next_line(line, indent, linenum);
+    }
+
+}
+impl Lexer {
+    /// Get the next token from one or more tokenized lines.
+    pub fn get_next_token(
+        &mut self,
+        check_tokens: Option<&[TokenKind]>,
         no_white: Option<bool>,
     ) -> PyResult<Tokens> {
         let no_white = no_white.unwrap_or(false);
@@ -571,7 +624,7 @@ impl Lexer {
                     return self.get_next_token(check_tokens, Some(no_white));
                 }
                 if let Some(check_tokens_some) = check_tokens {
-                    self.check_token(&token, &check_tokens_some).map_err(|err|
+                    self.check_token(&token, check_tokens_some).map_err(|err|
                         PyErr::new::<LexerError, _>((
                             err.msg,
                             err.line,
@@ -594,30 +647,29 @@ impl Lexer {
     }
 
     /// Get all tokens until not allowed tokens or end tokens are found.
-    #[pyo3(signature = (end_tokens, check_tokens=None, no_white=None))]
     pub fn get_until(
         &mut self,
-        mut end_tokens: Vec<Tokens>,
-        check_tokens: Option<Vec<Tokens>>,
+        end_tokens: &[TokenKind],
+        check_tokens: Option<&[TokenKind]>,
         no_white: Option<bool>,
     ) -> PyResult<Vec<Tokens>> {
-        let mut check_tokens = check_tokens.unwrap_or_default();
+        let check_tokens = check_tokens.unwrap_or_default();
         let no_white = no_white.unwrap_or(false);
-        if end_tokens.is_empty() {
-            end_tokens.push(Tokens::LEndL());
-        }
-        if !check_tokens.is_empty() {
-            check_tokens.extend(end_tokens.iter().cloned());
-        }
+        let end_tokens = if end_tokens.is_empty() {
+            &[TokenKind::LEndL]
+        } else {
+            end_tokens
+        };
 
         let mut tokens = Vec::new();
         while let Ok(next_token) = self.get_next_token(None, None) {
-            if !check_tokens.is_empty() && !check_tokens.iter()
-                    .any(|t| discriminant(t) == discriminant(&next_token)) {
+            let kind = next_token.kind();
+            let is_end = end_tokens.contains(&kind);
+            if !check_tokens.is_empty() && !check_tokens.contains(&kind) && !is_end {
                 return Err(PyErr::new::<LexerError, _>((
                     format!(
                         "Unexpected token '{:?}' not among expected ones {:?}",
-                        next_token, check_tokens.iter(),
+                        next_token, check_tokens.iter().chain(end_tokens).collect::<Vec<_>>(),
                     ),
                     self.line.clone(),
                     Some(self.filename.clone()),
@@ -627,53 +679,21 @@ impl Lexer {
             if no_white && matches!(next_token, Tokens::LWhite(_)) {
                 continue;
             }
-            tokens.push(next_token.clone());
-            if end_tokens.iter()
-                    .any(|t| discriminant(t) == discriminant(&next_token)) {
+            tokens.push(next_token);
+            if is_end {
                 break;
             }
         }
         Ok(tokens)
     }
 
-    /// Skip all tokens until end tokens are found.
-    pub fn flush_until(&mut self, end_tokens: Vec<Tokens>) -> PyResult<()> {
-        let _ = self.get_until(end_tokens, None, None)?;
-        Ok(())
-    }
-
-    /// Get all tokens from the rest of the line terminating only at an end-of-line token.
-    #[pyo3(signature = (no_white=None))]
-    pub fn get_rest_line(&mut self, no_white: Option<bool>) -> PyResult<Vec<Tokens>> {
-        self.get_until(Vec::new(), None, no_white)
-    }
-
-    /// Get a string token from the rest of the line.
-    pub fn get_rest_line_as_string_token(&mut self) -> PyResult<Tokens> {
-        self.rest_as_string = true;
-        let lstring: Tokens = {
-            let remainder_str = self.get_next_token(Some(vec![Tokens::default("String")]), None)?;
-            let _ = self.get_next_token(Some(vec![Tokens::default("endl")]), None)?;
-            remainder_str
-        };
-        Ok(lstring)
-    }
-
-    /// Make the next line to get return the given line instead of the real next line.
-    pub fn set_next_line(&mut self, line: String, indent: usize, linenum: usize) {
-        self.reader.set_next_line(line, indent, linenum);
-    }
-
-}
-impl Lexer {
     /// Get the next token from one or more tokenized lines.
     pub fn check_token(
         &self,
         token: &Tokens,
-        check_tokens: &[Tokens],
+        check_tokens: &[TokenKind],
     ) -> Result<(), LexerError> {
-        if !check_tokens.is_empty() && !check_tokens.iter()
-                .any(|t| discriminant(t) == discriminant(token)) {
+        if !check_tokens.is_empty() && !check_tokens.contains(&token.kind()) {
             return Err(LexerError {
                 msg: format!(
                     "Unexpected token '{:?}' not among expected ones {:?}",

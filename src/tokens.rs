@@ -340,7 +340,51 @@ impl<'py> FromPyObject<'_, 'py> for ParamVal {
     }
 }
 
-// Define an enum for the different types of tokens
+/// Token variants without payloads, used for lexer expectations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenKind {
+    LIndent,
+    LEndL,
+    LEndBlock,
+    LIdentifier,
+    LWhite,
+    LString,
+    LColon,
+    LVariants,
+    LDot,
+    LVariant,
+    LDefault,
+    LOnly,
+    LSuffix,
+    LJoin,
+    LNo,
+    LCond,
+    LNotCond,
+    LOr,
+    LAnd,
+    LCoc,
+    LComa,
+    LLBracket,
+    LRBracket,
+    LLRBracket,
+    LRRBracket,
+    LRegExpStart,
+    LRegExpStop,
+    LInclude,
+    LSet,
+    LAppend,
+    LPrepend,
+    LLazySet,
+    LRegExpSet,
+    LRegExpAppend,
+    LRegExpPrepend,
+    LDel,
+    LApplyDict,
+    LUpdateFileMap,
+    Suffix,
+}
+
+// Token variants with payloads, exported as python classes.
 #[pyclass(from_py_object,eq)]
 #[derive(Debug, PartialEq, Clone)]
 pub enum Tokens {
@@ -384,6 +428,7 @@ pub enum Tokens {
     LUpdateFileMap(String, String, String),
     Suffix(String, String),
 }
+
 // Implement the Display trait for Tokens
 impl fmt::Display for Tokens {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -450,9 +495,7 @@ impl Tokens {
 
     #[staticmethod]
     pub fn default(identifier: &str) -> Self {
-        // NOTE: based on identifier string and thus a static method instead
-        // of a simpler class method due to rust introspection limitations,
-        // same reason why we don't pass the types as arguments to the lexer
+        // Keep identifier-based construction for Python callers of the lexer.
         match identifier {
             // fast exact matches
             "endl" => Tokens::LEndL(),
@@ -593,6 +636,50 @@ impl Tokens {
     }
 }
 impl Tokens {
+    pub fn kind(&self) -> TokenKind {
+        match self {
+            Tokens::LIndent(_) => TokenKind::LIndent,
+            Tokens::LEndL() => TokenKind::LEndL,
+            Tokens::LEndBlock(_) => TokenKind::LEndBlock,
+            Tokens::LIdentifier(_) => TokenKind::LIdentifier,
+            Tokens::LWhite(_) => TokenKind::LWhite,
+            Tokens::LString(_) => TokenKind::LString,
+            Tokens::LColon() => TokenKind::LColon,
+            Tokens::LVariants() => TokenKind::LVariants,
+            Tokens::LDot() => TokenKind::LDot,
+            Tokens::LVariant() => TokenKind::LVariant,
+            Tokens::LDefault() => TokenKind::LDefault,
+            Tokens::LOnly() => TokenKind::LOnly,
+            Tokens::LSuffix() => TokenKind::LSuffix,
+            Tokens::LJoin() => TokenKind::LJoin,
+            Tokens::LNo() => TokenKind::LNo,
+            Tokens::LCond() => TokenKind::LCond,
+            Tokens::LNotCond() => TokenKind::LNotCond,
+            Tokens::LOr() => TokenKind::LOr,
+            Tokens::LAnd() => TokenKind::LAnd,
+            Tokens::LCoc() => TokenKind::LCoc,
+            Tokens::LComa() => TokenKind::LComa,
+            Tokens::LLBracket() => TokenKind::LLBracket,
+            Tokens::LRBracket() => TokenKind::LRBracket,
+            Tokens::LLRBracket() => TokenKind::LLRBracket,
+            Tokens::LRRBracket() => TokenKind::LRRBracket,
+            Tokens::LRegExpStart() => TokenKind::LRegExpStart,
+            Tokens::LRegExpStop() => TokenKind::LRegExpStop,
+            Tokens::LInclude() => TokenKind::LInclude,
+            Tokens::LSet(_, _) => TokenKind::LSet,
+            Tokens::LAppend(_, _) => TokenKind::LAppend,
+            Tokens::LPrepend(_, _) => TokenKind::LPrepend,
+            Tokens::LLazySet(_, _) => TokenKind::LLazySet,
+            Tokens::LRegExpSet(_, _) => TokenKind::LRegExpSet,
+            Tokens::LRegExpAppend(_, _) => TokenKind::LRegExpAppend,
+            Tokens::LRegExpPrepend(_, _) => TokenKind::LRegExpPrepend,
+            Tokens::LDel(_, _) => TokenKind::LDel,
+            Tokens::LApplyDict(_, _) => TokenKind::LApplyDict,
+            Tokens::LUpdateFileMap(_, _, _) => TokenKind::LUpdateFileMap,
+            Tokens::Suffix(_, _) => TokenKind::Suffix,
+        }
+    }
+
     pub fn apply_to_dict(self, dict: &mut HashMap<ParamKey, ParamVal>) -> PyResult<()> {
         match self {
             Tokens::LSet(name, value) => {
@@ -1028,6 +1115,8 @@ mod tests {
         // inequality
         assert!(t1 != t3);
         assert!(t2 != t3);
+        assert_eq!(t1.kind(), t3.kind());
+        assert_ne!(t1.kind(), Tokens::LEndBlock(Some(42)).kind());
     }
 
     #[test]

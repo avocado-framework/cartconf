@@ -1309,6 +1309,11 @@ class LexerTest(unittest.TestCase):
         self.assertIsInstance(tokens[6], parser.LIndent)
         self.assertIsInstance(tokens[7], parser.LOnly)
 
+        # payloads are irrelevant and only token types matter here
+        lexer = parser.Lexer(content="value")
+        tokens = lexer.get_until([parser.LIdentifier("other")], [parser.LIndent(42)])
+        self.assertEqual(tokens[-1].string, "value")
+
         with self.assertRaises(parser.LexerError):
             self.lexer.get_until(
                 [parser.Tokens.default("only")],
@@ -1353,7 +1358,7 @@ class LexerTest(unittest.TestCase):
             self.lexer.get_rest_line_as_string_token()
 
     def test_get_next_token_check(self):
-        token = self.lexer.get_next_token([parser.Tokens.default("indent")])
+        token = self.lexer.get_next_token([parser.LIndent(42)])
         self.assertIsInstance(token, parser.LIndent)
 
         with self.assertRaises(parser.LexerError):
@@ -1372,6 +1377,9 @@ class LexerTest(unittest.TestCase):
     def test_check_token(self):
         token = parser.LIdentifier("test")
         self.lexer.check_token(token, [parser.Tokens.default("Identifier")])
+        self.lexer.check_token(token, [parser.LIdentifier("other")])
+        self.lexer.check_token(parser.LEndBlock(None), [parser.LEndBlock(42)])
+        self.lexer.check_token(parser.LSet("key", "value"), [parser.LSet("other", "different")])
         self.lexer.set_next_line("key = value", 0, sys.maxsize + 1)
         self.lexer.get_until([parser.Tokens.default("endl")])
         self.assertEqual(self.lexer.linenum, sys.maxsize + 1)
