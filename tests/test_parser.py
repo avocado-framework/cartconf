@@ -2367,12 +2367,24 @@ class ParserTest(unittest.TestCase):
     def test_special_chars(self):
         self._compare_string_config("""
             FILE_2018年度公开课计划表.xlsx = type no_txt, desc (check that unicode filename is handled)
+            append_é=start
+            append_é+=end
+            regexp_é=start
+            regexp_é?=end
+            append_漢=start
+            append_漢+=end
+            regexp_漢=start
+            regexp_漢?=end
             """,
             [
                 {'dep': [],
                  'name': '',
                  'shortname': '',
                  'FILE_2018年度公开课计划表.xlsx': 'type no_txt, desc (check that unicode filename is handled)',
+                 'append_é': 'startend',
+                 'regexp_é': 'end',
+                 'append_漢': 'startend',
+                 'regexp_漢': 'end',
                  },
             ],
             True)
