@@ -12,7 +12,7 @@ use pyo3::types::{PyAny};
 
 use crate::tokens::{ParamKey, ParamVal};
 use crate::tokens::ParamKeyHashMapExt;
-use crate::tokens::Tokens;
+use crate::tokens::{TokenKind, Tokens};
 use crate::tokens::{drop_suffixes, apply_suffix_bounds};
 use crate::filters::Filters;
 use crate::lexer::Lexer;
@@ -543,9 +543,9 @@ impl Node {
         };
 
         // Get the next token for the value (LString)
-        let lstring = Tokens::default("String");
-        let lendl = Tokens::default("endl");
-        let value = lexer.get_next_token(Some(vec![lstring]), None)?;
+        let lstring = TokenKind::LString;
+        let lendl = TokenKind::LEndL;
+        let value = lexer.get_next_token(Some(&[lstring]), None)?;
         let mut value_str: String = value.string()?;
         // strip surrounding quotes if present
         let first = value_str.chars().next().unwrap_or(' ');
@@ -570,7 +570,7 @@ impl Node {
                 if !op_name.is_empty() && d_nin_val && dict.contains_key_str(op_name.as_str()) {
                     // apply and consume EOL
                     op_obj.apply_to_dict(&mut dict)?;
-                    lexer.get_next_token(Some(vec![lendl]), None)?;
+                    lexer.get_next_token(Some(&[lendl]), None)?;
                     return Ok(dict);
                 } else {
                     // flush dict into node
@@ -588,7 +588,7 @@ impl Node {
         }
 
         // consume end-of-line
-        lexer.get_next_token(Some(vec![lendl]), None)?;
+        lexer.get_next_token(Some(&[lendl]), None)?;
         Ok(dict)
     }
 
@@ -601,11 +601,11 @@ impl Node {
         lexer: &mut Lexer,
         dict: HashMap<ParamKey, ParamVal>,
     ) -> PyResult<()> {
-        let lidentifier = Tokens::default("Identifier");
-        let lendl = Tokens::default("endl");
-        let to_del = lexer.get_next_token(Some(vec![lidentifier]), Some(true))?;
+        let lidentifier = TokenKind::LIdentifier;
+        let lendl = TokenKind::LEndL;
+        let to_del = lexer.get_next_token(Some(&[lidentifier]), Some(true))?;
         // consume EOL
-        lexer.get_next_token(Some(vec![lendl]), Some(true))?;
+        lexer.get_next_token(Some(&[lendl]), Some(true))?;
         let to_del_str: String = to_del.string()?;
 
         // flush dict and add token as content
@@ -685,7 +685,7 @@ impl Node {
         let mut tokens = vec![token];
         let identifier_len = identifier.len();
         tokens.extend(identifier.into_iter().take(identifier_len.saturating_sub(1)));
-        tokens.push(Tokens::default("endl"));
+        tokens.push(Tokens::LEndL());
 
         // Parse the condition filter
         let cfilter: Vec<Vec<Vec<Label>>> = Filters::parse_filter(
@@ -732,10 +732,10 @@ impl Node {
         indent: usize,
     ) -> PyResult<()> {
         // Build the full token list
-        let lcolon = Tokens::default(":");
-        let lendl = Tokens::default("endl");
+        let lcolon = TokenKind::LColon;
+        let lendl = TokenKind::LEndL;
         let tokens = lexer.get_until(
-            vec![lcolon, lendl],
+            &[lcolon, lendl],
             None,
             Some(true),
         )?;
@@ -802,12 +802,12 @@ impl Node {
 
         // Get tokens until bracket, colon, identifier or end
         let allowed = [
-            Tokens::default("["),
-            Tokens::default(":"),
-            Tokens::default("Identifier"),
-            Tokens::default("endl"),
+            TokenKind::LLBracket,
+            TokenKind::LColon,
+            TokenKind::LIdentifier,
+            TokenKind::LEndL,
         ];
-        let tokens = lexer.get_until(allowed.to_vec(), None, Some(true))?;
+        let tokens = lexer.get_until(&allowed, None, Some(true))?;
         let mut vtoken: Tokens = match tokens.last() {
             Some(last_token) => last_token.clone(),
             None => {
@@ -833,15 +833,15 @@ impl Node {
             } else if matches!(vtoken, Tokens::LLBracket()) {
                 // Parse metadata in brackets
                 let ident = lexer.get_next_token(
-                    Some(vec![Tokens::default("Identifier")]),
+                    Some(&[TokenKind::LIdentifier]),
                     Some(true),
                 )?;
                 let ident_str: String = ident.string()?;
 
                 let next_token = lexer.get_next_token(
-                    Some(vec![
-                        Tokens::default("="),
-                        Tokens::default("]"),
+                    Some(&[
+                        TokenKind::LSet,
+                        TokenKind::LRBracket,
                     ]),
                     Some(true),
                 )?;
@@ -854,9 +854,9 @@ impl Node {
                 } else if matches!(next_token, Tokens::LSet(_, _)) {
                     // Handle [xxx = yyy]
                     let tokens = lexer.get_until(
-                        vec![
-                            Tokens::default("]"),
-                            Tokens::default("endl")
+                        &[
+                            TokenKind::LRBracket,
+                            TokenKind::LEndL
                         ],
                         None,
                         Some(true),
@@ -890,7 +890,7 @@ impl Node {
 
             // Get next token
             let next_token = lexer.get_next_token(
-                Some(allowed.to_vec()),
+                Some(&allowed),
                 Some(true),
             )?;
             vtoken = next_token;
@@ -922,7 +922,7 @@ impl Node {
 
         // Consume end of line
         lexer.get_next_token(
-            Some(vec![Tokens::default("endl")]),
+            Some(&[TokenKind::LEndL]),
             Some(true),
         )?;
 
@@ -966,17 +966,17 @@ impl Node {
 
         // Data used for the entire loop
         let tokens = [
-                Tokens::default("Identifier"),
-                Tokens::default("@"),
-                Tokens::default("indent"),
-                Tokens::default("endb"),
+                TokenKind::LIdentifier,
+                TokenKind::LDefault,
+                TokenKind::LIndent,
+                TokenKind::LEndBlock,
         ];
 
         loop {
             lexer.set_prev_indent(Some(variant_indent));
 
             // Get token from lexer and check for end of block
-            let token = lexer.get_next_token(Some(tokens.to_vec()), Some(true))?;
+            let token = lexer.get_next_token(Some(&tokens), Some(true))?;
             if matches!(token, Tokens::LEndBlock(_)) {
                 break;
             }
@@ -987,13 +987,13 @@ impl Node {
             if matches!(token, Tokens::LIndent(_)) {
                 // Handle indented variant
                 lexer.get_next_token(
-                    Some(vec![Tokens::default("-")]),
+                    Some(&[TokenKind::LVariant]),
                     Some(true),
                 )?;
                 let token = lexer.get_next_token(
-                    Some(vec![
-                        Tokens::default("Identifier"),
-                        Tokens::default("@"),
+                    Some(&[
+                        TokenKind::LIdentifier,
+                        TokenKind::LDefault,
                     ]),
                     Some(true),
                 )?;
@@ -1001,14 +1001,14 @@ impl Node {
                 if matches!(token, Tokens::LDefault()) {
                     is_default = true;
                     name = lexer.get_until(
-                        vec![Tokens::default(":")],
+                        &[TokenKind::LColon],
                         None,
                         None,
                     )?;
                 } else {
                     name = vec![token];
                     name.extend(lexer.get_until(
-                        vec![Tokens::default(":")],
+                        &[TokenKind::LColon],
                         None,
                         None,
                     )?);
@@ -1016,14 +1016,14 @@ impl Node {
             } else if matches!(token, Tokens::LDefault()) {
                 is_default = true;
                 name = lexer.get_until(
-                    vec![Tokens::default(":")],
+                    &[TokenKind::LColon],
                     None,
                     None,
                 )?;
             } else {
                 name = vec![token];
                 name.extend(lexer.get_until(
-                    vec![Tokens::default(":")],
+                    &[TokenKind::LColon],
                     None,
                     None,
                 )?);
@@ -1038,7 +1038,7 @@ impl Node {
             if !matches!(token, Tokens::LEndL()) {
                 let mut filter_tokens = vec![token];
                 filter_tokens.extend(lexer.get_until(
-                    vec![Tokens::default("endl")],
+                    &[TokenKind::LEndL],
                     None,
                     None,
                 )?);
@@ -1173,35 +1173,34 @@ pub fn parse(
     expand_defaults: Option<Vec<String>>,
 ) -> PyResult<Node> {
     // Allowed token types for different contexts
-    // reuse default tokens as much as possible using their identifiers
     let block_allowed = [
-        Tokens::default("variants"),
-        Tokens::default("Identifier"),
-        Tokens::default("only"),
-        Tokens::default("no"),
-        Tokens::default("include"),
-        Tokens::default("del"),
-        Tokens::default("!"),
-        Tokens::default("suffix"),
-        Tokens::default("join"),
+        TokenKind::LVariants,
+        TokenKind::LIdentifier,
+        TokenKind::LOnly,
+        TokenKind::LNo,
+        TokenKind::LInclude,
+        TokenKind::LDel,
+        TokenKind::LNotCond,
+        TokenKind::LSuffix,
+        TokenKind::LJoin,
     ];
-    let variants_allowed = [Tokens::default("-")];
+    let variants_allowed = [TokenKind::LVariant];
     let identifier_allowed = [
-        Tokens::default("="),
-        Tokens::default("+="),
-        Tokens::default("<="),
-        Tokens::default("~="),
-        Tokens::default("?="),
-        Tokens::default("?+="),
-        Tokens::default("?<="),
-        Tokens::default(":"),
-        Tokens::default("endl"),
+        TokenKind::LSet,
+        TokenKind::LAppend,
+        TokenKind::LPrepend,
+        TokenKind::LLazySet,
+        TokenKind::LRegExpSet,
+        TokenKind::LRegExpAppend,
+        TokenKind::LRegExpPrepend,
+        TokenKind::LColon,
+        TokenKind::LEndL,
     ];
     let indent_allowed = [
-        Tokens::default("indent"),
-        Tokens::default("endb")
+        TokenKind::LIndent,
+        TokenKind::LEndBlock
     ];
-    let mut allowed = block_allowed.to_vec();
+    let mut allowed = block_allowed.as_slice();
 
     // Variant tracking state
     let mut variant_name = String::new();
@@ -1224,7 +1223,7 @@ pub fn parse(
 
         // Handle indentation
         let token = lexer.get_next_token(
-            Some(indent_allowed.to_vec()),
+            Some(&indent_allowed),
             None
         )?;
 
@@ -1239,7 +1238,7 @@ pub fn parse(
             }
             return Ok(node);
         };
-        let token = lexer.get_next_token(Some(allowed.to_vec()), None)?;
+        let token = lexer.get_next_token(Some(allowed), None)?;
 
         match token {
             Tokens::LInclude() => {
@@ -1253,7 +1252,7 @@ pub fn parse(
                 //    identifier .....
                 // Get tokens until an operator or colon
                 let identifier = lexer.get_until(
-                    identifier_allowed.to_vec(),
+                    &identifier_allowed,
                     None,
                     Some(true),
                 )?;
@@ -1313,7 +1312,7 @@ pub fn parse(
                 for (key, values) in meta_dict {
                     meta.insert(key, values);
                 }
-                allowed = variants_allowed.to_vec();
+                allowed = &variants_allowed;
             }
 
             Tokens::LVariant() => {
@@ -1328,7 +1327,7 @@ pub fn parse(
                     expand_defaults.clone().unwrap_or_default(),
                 )?;
                 dict = HashMap::new();
-                allowed = block_allowed.to_vec();
+                allowed = &block_allowed;
             }
 
             Tokens::LNo() | Tokens::LOnly() | Tokens::LJoin() => {
@@ -1373,11 +1372,11 @@ pub fn parse(
                 }
                 dict = HashMap::new();
                 let token_val = lexer.get_next_token(
-                    Some(vec![Tokens::default("Identifier")]),
+                    Some(&[TokenKind::LIdentifier]),
                     None,
                 )?;
                 lexer.get_next_token(
-                    Some(vec![Tokens::default("endl")]),
+                    Some(&[TokenKind::LEndL]),
                     None,
                 )?;
 
@@ -2226,8 +2225,8 @@ mod tests {
         let content = format!("include {}", tmp_path);
         let mut lexer = Lexer::new(Some(&content), None).expect("Failed to create lexer");
         // advance lexer to consume indent and include tokens
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("get_next_token indent");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("include")]), None).expect("get_next_token include");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("get_next_token indent");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LInclude]), None).expect("get_next_token include");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2247,10 +2246,10 @@ mod tests {
     fn test_apply_operator_set_optimized() {
         // create lexer for "key2 = value2"
         let mut lexer = Lexer::new(Some("key2 = value2"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent token");
-        let token = lexer.get_next_token(Some(vec![Tokens::default("Identifier")]), None).expect("identifier token");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent token");
+        let token = lexer.get_next_token(Some(&[TokenKind::LIdentifier]), None).expect("identifier token");
         // get identifier tokens up to '=' (no_white = true)
-        let identifier = lexer.get_until(vec![Tokens::default("=")], None, Some(true)).expect("get_until identifier");
+        let identifier = lexer.get_until(&[TokenKind::LSet], None, Some(true)).expect("get_until identifier");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2274,9 +2273,9 @@ mod tests {
     fn test_apply_operator_append_safe() {
         // content: "key1 += &value2"
         let mut lexer = Lexer::new(Some("key1 += &value2"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent token");
-        let token = lexer.get_next_token(Some(vec![Tokens::default("Identifier")]), None).expect("identifier token");
-        let identifier = lexer.get_until(vec![Tokens::default("+=")], None, Some(true)).expect("get_until identifier");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent token");
+        let token = lexer.get_next_token(Some(&[TokenKind::LIdentifier]), None).expect("identifier token");
+        let identifier = lexer.get_until(&[TokenKind::LAppend], None, Some(true)).expect("get_until identifier");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2295,9 +2294,9 @@ mod tests {
     fn test_apply_operator_append_unsafe() {
         // content: "key2 += &value2" (key2 not present in dict therefore flush)
         let mut lexer = Lexer::new(Some("key2 += &value2"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent token");
-        let token = lexer.get_next_token(Some(vec![Tokens::default("Identifier")]), None).expect("identifier token");
-        let identifier = lexer.get_until(vec![Tokens::default("+=")], None, Some(true)).expect("get_until identifier");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent token");
+        let token = lexer.get_next_token(Some(&[TokenKind::LIdentifier]), None).expect("identifier token");
+        let identifier = lexer.get_until(&[TokenKind::LAppend], None, Some(true)).expect("get_until identifier");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2328,8 +2327,8 @@ mod tests {
     fn test_apply_deletion() {
         // content: "del key"
         let mut lexer = Lexer::new(Some("del key"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("del")]), None).expect("del");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LDel]), None).expect("del");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2358,9 +2357,9 @@ mod tests {
     fn test_apply_condition() {
         // content: "key:\n value"
         let mut lexer = Lexer::new(Some("key:\nvalue"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent");
-        let token = lexer.get_next_token(Some(vec![Tokens::default("Identifier")]), None).expect("identifier");
-        let identifier = lexer.get_until(vec![Tokens::default(":")], None, Some(true)).expect("get_until");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent");
+        let token = lexer.get_next_token(Some(&[TokenKind::LIdentifier]), None).expect("identifier");
+        let identifier = lexer.get_until(&[TokenKind::LColon], None, Some(true)).expect("get_until");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2392,8 +2391,8 @@ mod tests {
     fn test_apply_notcondition() {
         // content: "!key:\n value"
         let mut lexer = Lexer::new(Some("!key:\nvalue"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("!")]), None).expect("notcond");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LNotCond]), None).expect("notcond");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
@@ -2425,8 +2424,8 @@ mod tests {
     fn test_apply_variants() {
         // content: "variants test:"
         let mut lexer = Lexer::new(Some("variants test:"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("variants")]), None).expect("variants");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LVariants]), None).expect("variants");
 
         let node = Node::new();
         let (variant_name, meta) = node.apply_variants(&mut lexer).expect("apply_variants failed");
@@ -2444,8 +2443,8 @@ mod tests {
         // content: "variants test [meta1] [meta2=val2] [ meta3 ] [ meta4 = val4 val5 ]:"
         let txt = r#"variants test [meta1] [meta2=val2] [ meta3 ] [ meta4 = val4 val5 ]:"#;
         let mut lexer = Lexer::new(Some(txt), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("variants")]), None).expect("variants");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LVariants]), None).expect("variants");
 
         let node = Node::new();
         let (variant_name, meta) = node.apply_variants(&mut lexer).expect("apply_variants failed");
@@ -2466,8 +2465,8 @@ mod tests {
     fn test_apply_variant() {
         // content: "- test:"
         let mut lexer = Lexer::new(Some("- test:"), None).expect("Failed to create lexer");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("indent")]), None).expect("indent");
-        let _ = lexer.get_next_token(Some(vec![Tokens::default("-")]), None).expect("dash");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LIndent]), None).expect("indent");
+        let _ = lexer.get_next_token(Some(&[TokenKind::LVariant]), None).expect("dash");
 
         let mut node = Node::new();
         let mut dict: HashMap<ParamKey, ParamVal> = HashMap::new();
