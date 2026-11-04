@@ -29,7 +29,7 @@ pub struct ParserError {
 impl ParserError {
     #[new]
     #[pyo3(signature = (msg, line=None, filename=None, linenum=None))]
-    fn new(msg: String, line: Option<String>, filename: Option<String>, linenum: Option<isize>) -> Self {
+    fn new(msg: String, line: Option<String>, filename: Option<String>, linenum: Option<usize>) -> Self {
         Self { lexer_error: LexerError::new(msg, line, filename, linenum) }
     }
 
@@ -193,7 +193,7 @@ impl<'py> FromPyObject<'_, 'py> for ContentType {
 #[derive(Debug, PartialEq, Clone)]
 pub struct ContentStep {
     filename: String,
-    linenum: isize,
+    linenum: Option<usize>,
     content_type: ContentType,
 }
 impl<'py> IntoPyObject<'py> for ContentStep {
@@ -211,7 +211,7 @@ impl<'py> FromPyObject<'_, 'py> for ContentStep {
     type Error = PyErr;
 
     fn extract(object: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Ok((filename, linenum, content_type)) = object.extract::<(String, isize, ContentType)>() {
+        if let Ok((filename, linenum, content_type)) = object.extract::<(String, Option<usize>, ContentType)>() {
             return Ok(ContentStep { filename, linenum, content_type });
         }
         Err(PyErr::new::<PyTypeError, _>(
@@ -331,7 +331,7 @@ impl Node {
         self.content.clone()
     }
 
-    pub fn add_content(&mut self, filename: String, linenum: isize, content_type: ContentType) {
+    pub fn add_content(&mut self, filename: String, linenum: Option<usize>, content_type: ContentType) {
         self.content.push(ContentStep { filename, linenum, content_type });
     }
 
@@ -656,7 +656,7 @@ impl Node {
                 "file does not exist or it's not a regular file".to_string(),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -668,7 +668,7 @@ impl Node {
         let mut new_lexer = Lexer::new(None, Some(filepath_str))?;
 
         // Parse with new lexer
-        parse(&mut new_lexer, self.clone(), -1, false, None)
+        parse(&mut new_lexer, self.clone(), None, false, None)
     }
 
     /*
@@ -681,7 +681,7 @@ impl Node {
         token: Tokens,
         lexer: &mut Lexer,
         dict: HashMap<ParamKey, ParamVal>,
-        indent: isize,
+        indent: usize,
     ) -> PyResult<()> {
         // Build the full identifier list: [token] + identifier[:-1] + [LEndl]
         let mut tokens = vec![token];
@@ -701,7 +701,8 @@ impl Node {
         let next_line = lexer.get_rest_line_as_string_token()?;
         let next_line_str: String = next_line.string()?;
         if !next_line_str.is_empty() {
-            lexer.set_next_line(next_line_str, (indent + 1) as usize, lexer.linenum as usize);
+            let linenum = lexer.linenum.ok_or_else(|| PyValueError::new_err("Missing line number"))?;
+            lexer.set_next_line(next_line_str, indent + 1, linenum);
         }
 
         // Create a new Node for the condition
@@ -709,7 +710,7 @@ impl Node {
         cond.condition = Some(Filters::Condition { filter : cfilter, line : lexer.line.clone().unwrap_or_default() });
 
         // Parse the condition block
-        cond = parse(lexer, cond, indent, false, None)?;
+        cond = parse(lexer, cond, Some(indent), false, None)?;
 
         // Apply the current dict and add the condition node as content
         self.apply_dict(lexer, dict);
@@ -730,7 +731,7 @@ impl Node {
         &mut self,
         lexer: &mut Lexer,
         dict: HashMap<ParamKey, ParamVal>,
-        indent: isize,
+        indent: usize,
     ) -> PyResult<()> {
         // Build the full token list
         let lcolon = Tokens::default(":");
@@ -758,7 +759,8 @@ impl Node {
         let next_line = lexer.get_rest_line_as_string_token()?;
         let next_line_str: String = next_line.string()?;
         if !next_line_str.is_empty() {
-            lexer.set_next_line(next_line_str, (indent + 1)  as usize, lexer.linenum as usize);
+            let linenum = lexer.linenum.ok_or_else(|| PyValueError::new_err("Missing line number"))?;
+            lexer.set_next_line(next_line_str, indent + 1, linenum);
         }
 
         // Create a new Node for the negative condition
@@ -769,7 +771,7 @@ impl Node {
         });
 
         // Parse the condition block
-        cond = parse(lexer, cond, indent, false, None)?;
+        cond = parse(lexer, cond, Some(indent), false, None)?;
 
         // Apply the current dict and add the condition node as content
         self.apply_dict(lexer, dict);
@@ -796,7 +798,7 @@ impl Node {
                 "'variants' is not allowed inside a conditional block".to_string(),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -826,7 +828,7 @@ impl Node {
                         "Syntax ERROR expected '[' or ':'".to_string(),
                         lexer.line.clone(),
                         Some(lexer.filename.clone()),
-                        Some(lexer.linenum),
+                        lexer.linenum,
                     )));
                 }
                 variant_name = tokens[0].string()?;
@@ -882,7 +884,7 @@ impl Node {
                             "Syntax ERROR expected ']'".to_string(),
                             lexer.line.clone(),
                             Some(lexer.filename.clone()),
-                            Some(lexer.linenum),
+                            lexer.linenum,
                         )));
                     }
                 }
@@ -904,7 +906,7 @@ impl Node {
                         "Syntax ERROR expected [default=xxx]".to_string(),
                         lexer.line.clone(),
                         Some(lexer.filename.clone()),
-                        Some(lexer.linenum),
+                        lexer.linenum,
                     )));
                 }
             }
@@ -916,7 +918,7 @@ impl Node {
                 "Syntax ERROR expected ':'".to_string(),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -941,9 +943,9 @@ impl Node {
         &mut self,
         lexer: &mut Lexer,
         dict: HashMap<ParamKey, ParamVal>,
-        indent: isize,
+        indent: usize,
         variant_name: String,
-        variant_indent: isize,
+        variant_indent: usize,
         meta: &mut HashMap<String, Vec<String>>,
         defaults : bool,
         expand_defaults : Vec<String>,
@@ -970,7 +972,7 @@ impl Node {
         ];
 
         loop {
-            lexer.set_prev_indent(variant_indent);
+            lexer.set_prev_indent(Some(variant_indent));
 
             // Get token from lexer and check for end of block
             let token = lexer.get_next_token(Some(tokens.to_vec()), Some(true))?;
@@ -1071,7 +1073,7 @@ impl Node {
                 );
             }
 
-            let mut node3 = parse(lexer, node2, indent, defaults, Some(expand_defaults.clone()))?;
+            let mut node3 = parse(lexer, node2, Some(indent), defaults, Some(expand_defaults.clone()))?;
 
             // Set variant name and dependencies
             if !variant_name.is_empty() {
@@ -1154,7 +1156,7 @@ impl Node {
                 format!("Missing default variant {:?}", meta_default_values),
                 lexer.line.clone(),
                 Some(lexer.filename.clone()),
-                Some(lexer.linenum),
+                lexer.linenum,
             )));
         }
 
@@ -1165,7 +1167,7 @@ impl Node {
 pub fn parse(
     lexer: &mut Lexer,
     mut node: Node,
-    prev_indent: isize,
+    prev_indent: Option<usize>,
     defaults: bool,
     expand_defaults: Option<Vec<String>>,
 ) -> PyResult<Node> {
@@ -1210,7 +1212,7 @@ pub fn parse(
     // Reasons:
     // 1. Escapes multiplying suffix operators
     // 2. Affects all elements in current block
-    let mut suffix: Option<(String, isize, Tokens)> = None;
+    let mut suffix: Option<(String, Option<usize>, Tokens)> = None;
 
     // Dictionary contains block of operation without collision with
     // other blocks or operations which increases speed almost twice.
@@ -1225,7 +1227,7 @@ pub fn parse(
             None
         )?;
 
-        if matches!(token, Tokens::LEndBlock(_)) {
+        let Tokens::LIndent(indent) = token else {
             if !dict.is_empty() {
                 // Flush dict to node content
                 node.apply_dict(lexer, dict);
@@ -1235,9 +1237,7 @@ pub fn parse(
                 node.add_content(filename.clone(), linenum, ContentType::Tokens(op));
             }
             return Ok(node);
-        }
-
-        let indent: isize = token.length()?;
+        };
         let token = lexer.get_next_token(Some(allowed.to_vec()), None)?;
 
         match token {
@@ -1289,7 +1289,7 @@ pub fn parse(
                         "Syntax ERROR expected ':' or operand".to_string(),
                         lexer.line.clone(),
                         Some(lexer.filename.clone()),
-                        Some(lexer.linenum),
+                        lexer.linenum,
                     )));
                 }
             }
@@ -1392,7 +1392,7 @@ pub fn parse(
                     "Syntax ERROR expected".to_string(),
                     lexer.line.clone(),
                     Some(lexer.filename.clone()),
-                    Some(lexer.linenum),
+                    lexer.linenum,
                 )));
             }
         }
@@ -1400,11 +1400,11 @@ pub fn parse(
 }
 
 #[pyfunction]
-#[pyo3(signature = (cfgstr, node, prev_indent=-1, defaults=true, expand_defaults=None))]
+#[pyo3(signature = (cfgstr, node, prev_indent=None, defaults=true, expand_defaults=None))]
 pub fn parse_string(
     cfgstr: String,
     node: Node,
-    prev_indent: isize,
+    prev_indent: Option<usize>,
     defaults: bool,
     expand_defaults: Option<Vec<String>>,
 ) -> PyResult<Node> {
@@ -1413,11 +1413,11 @@ pub fn parse_string(
 }
 
 #[pyfunction]
-#[pyo3(signature = (cfgfile, node, prev_indent=-1, defaults=true, expand_defaults=None))]
+#[pyo3(signature = (cfgfile, node, prev_indent=None, defaults=true, expand_defaults=None))]
 pub fn parse_file(
     cfgfile: String,
     node: Node,
-    prev_indent: isize,
+    prev_indent: Option<usize>,
     defaults: bool,
     expand_defaults: Option<Vec<String>>,
 ) -> PyResult<Node> {
@@ -1453,14 +1453,14 @@ impl Tree {
     fn parse_string(&self, cfgstr: String, defaults: bool, expand_defaults: Option<Vec<String>>) -> PyResult<Self> {
         let mut node = self.root.as_ref().clone();
         node.filename = "<string>".to_string();
-        Ok(Self { root: Rc::new(parse_string(cfgstr, node, -1, defaults, expand_defaults)?) })
+        Ok(Self { root: Rc::new(parse_string(cfgstr, node, None, defaults, expand_defaults)?) })
     }
 
     #[pyo3(signature = (cfgfile, defaults=false, expand_defaults=None))]
     fn parse_file(&self, cfgfile: String, defaults: bool, expand_defaults: Option<Vec<String>>) -> PyResult<Self> {
         let mut node = self.root.as_ref().clone();
         node.filename = cfgfile.clone();
-        Ok(Self { root: Rc::new(parse_file(cfgfile, node, -1, defaults, expand_defaults)?) })
+        Ok(Self { root: Rc::new(parse_file(cfgfile, node, None, defaults, expand_defaults)?) })
     }
 }
 
@@ -2493,7 +2493,7 @@ mod tests {
     fn test_advance_stops_at_dict() {
         let root = parse_string(
             "variants:\n    - first:\n    - rejected:\n        only missing\n    - last:\n".to_string(),
-            Node::new(), -1, false, None,
+            Node::new(), None, false, None,
         ).unwrap();
         let mut pre_dict = PreDict::default();
         assert!(pre_dict.update_from_node(Rc::new(root), None).unwrap());
@@ -2511,7 +2511,7 @@ mod tests {
     fn test_advance_stops_at_join() {
         let root = parse_string(
             "variants:\n    - a:\n    - b:\njoin a b\n".to_string(),
-            Node::new(), -1, false, None,
+            Node::new(), None, false, None,
         ).unwrap();
         let mut pre_dict = PreDict::default();
         assert!(pre_dict.update_from_node(Rc::new(root), None).unwrap());
@@ -2525,7 +2525,7 @@ mod tests {
     fn test_advance_continues_and_exhausts_join() {
         let root = parse_string(
             "variants:\n    - a:\n    - b:\nvariants:\n    - joined:\n        join a b\n    - plain:\n".to_string(),
-            Node::new(), -1, false, None,
+            Node::new(), None, false, None,
         ).unwrap();
         let mut pre_dict = PreDict::default();
         assert!(pre_dict.update_from_node(Rc::new(root), None).unwrap());
@@ -2563,7 +2563,7 @@ mod tests {
         Python::initialize();
         // malformed content as "no condition" conditional node inside another
         let mut child = Node::new();
-        child.add_content("<test>".to_string(), 1, ContentType::Node(Rc::new(Node::new())));
+        child.add_content("<test>".to_string(), Some(1), ContentType::Node(Rc::new(Node::new())));
         let mut root = Node::new();
         root.append_child(child);
         let root = Rc::new(root);
@@ -2595,7 +2595,7 @@ mod tests {
         // two join pre-dicts with two alternatives each exercise cache reuse and replacement
         let root = parse_string(
             "variants:\n    - x:\n    - y:\nvariants:\n    - a:\n    - b:\njoin a b\n".to_string(),
-            Node::new(), -1, false, None,
+            Node::new(), None, false, None,
         ).unwrap();
         let mut pre_dict = PreDict::default();
         assert!(pre_dict.update_from_node(Rc::new(root), None).unwrap());
@@ -2645,7 +2645,7 @@ mod tests {
         ] {
             let root = parse_string(
                 "variants:\n    - a:\n    - b:\njoin a b\n".to_string(),
-                Node::new(), -1, false, None,
+                Node::new(), None, false, None,
             ).unwrap();
             let root = Rc::new(root);
             let mut pre_dict = PreDict::default();
@@ -2655,7 +2655,7 @@ mod tests {
             // inject the invalid content step
             pre_dict.processed_content[0].as_mut().unwrap().push(ContentStep {
                 filename: "<test>".to_string(),
-                linenum: 1,
+                linenum: Some(1),
                 content_type,
             });
 
@@ -2685,7 +2685,7 @@ mod tests {
     #[test]
     fn test_pre_dict_failed_case_reuse() {
         let node = Rc::new(parse_string(
-            "only test2\n".to_string(), Node::new(), -1, false, None,
+            "only test2\n".to_string(), Node::new(), None, false, None,
         ).unwrap());
         let mut failed = PreDict::default();
         assert!(!failed.update_from_node(Rc::clone(&node), None).unwrap());

@@ -18,6 +18,9 @@ class TestTokens(unittest.TestCase):
         self.assertEqual(str(t), "indent 4")
         self.assertEqual(repr(t), "'indent 4'")
         self.assertEqual(t.length, 4)
+        self.assertEqual(LIndent(sys.maxsize + 1).length, sys.maxsize + 1)
+        with self.assertRaises(OverflowError):
+            LIndent(-1)
 
     def test_lendl(self):
         t = LEndL()
@@ -31,6 +34,12 @@ class TestTokens(unittest.TestCase):
         self.assertEqual(str(t), "endb 4")
         self.assertEqual(repr(t), "'endb 4'")
         self.assertEqual(t.length, 4)
+        self.assertEqual(LEndBlock(sys.maxsize + 1).length, sys.maxsize + 1)
+        t = LEndBlock(None)
+        self.assertIsNone(t.length)
+        self.assertEqual(str(t), "endb")
+        with self.assertRaises(OverflowError):
+            LEndBlock(-1)
 
     def test_lidentifier(self):
         t = LIdentifier("identifier")
