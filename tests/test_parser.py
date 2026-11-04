@@ -2102,6 +2102,10 @@ class ParserTest(unittest.TestCase):
                     1st = 1
                     starts_with_number = index ${1st}
                     not_a_substitution = ${}
+                    literal_single_quote = '
+                    empty_single_quotes = ''
+                    literal_double_quote = "
+                    empty_double_quotes = ""
             """,
             [
                 {'_name_map_file': {'<string>': '(tests=system1)'},
@@ -2121,6 +2125,10 @@ class ParserTest(unittest.TestCase):
                  '1st': '1',
                  'starts_with_number': 'index 1',
                  'not_a_substitution': '${}',
+                 'literal_single_quote': "'",
+                 'empty_single_quotes': '',
+                 'literal_double_quote': '"',
+                 'empty_double_quotes': '',
                  },
             ],
             True)
