@@ -957,6 +957,9 @@ impl Node {
             self.apply_dict(lexer, dict);
         }
 
+        // Share parent among siblings
+        let parent = Rc::new(self.clone());
+
         // Handle default variants
         let meta_default = meta.get_mut("default");
         let meta_default_values_empty = &mut Vec::new();
@@ -1051,7 +1054,7 @@ impl Node {
 
             // Create and parse the variant node
             let mut node2 = Node::new();
-            node2.append_child(self.clone());
+            node2.children.push_back(Rc::clone(&parent));
             node2.update_labels(self.labels.clone());
 
             if !variant_name.is_empty() {
@@ -2717,6 +2720,8 @@ mod tests {
         let ast = Tree::new(None).parse_string(
             "variants:\n    - a:\n    - b:\n".to_string(), false, None,
         ).unwrap();
+        let common = &ast.root.children[0].children[0];
+        assert!(Rc::ptr_eq(common, &ast.root.children[1].children[0]));
         let mut pre_dict = PreDict::default();
         assert!(pre_dict.update_from_tree(&ast).unwrap());
         assert!(Rc::ptr_eq(&ast.root, &pre_dict.branch[0]));
