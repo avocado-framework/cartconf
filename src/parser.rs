@@ -292,7 +292,8 @@ impl Node {
             .chars()
             .zip(n2.chars())
             .take_while(|(a, b)| a == b)
-            .count();
+            .map(|(c, _)| c.len_utf8())
+            .sum();
         let common_prefix = &n1[..common_prefix_len];
 
         // strip the last dot-separated component from the common prefix

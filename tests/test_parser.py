@@ -405,10 +405,10 @@ class NodeTest(unittest.TestCase):
         self.assertEqual(failed_filters, [])
 
     def test_join_names(self):
-        name1 = "test1.subtest1"
-        name2 = "test1.subtest2"
-        combined_name = parser.Node.join_names(name1, name2)
-        self.assertEqual(combined_name, "test1.subtest1.subtest2")
+        for prefix in ("test1", "é", "漢"):
+            self.assertEqual(parser.Node.join_names(f"{prefix}.subtest1", f"{prefix}.subtest2"),
+                             f"{prefix}.subtest1.subtest2")
+        self.assertEqual(parser.Node.join_names("é", "é"), "é.é")
 
     def test_dump(self):
         node = parser.Node()
