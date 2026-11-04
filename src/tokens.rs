@@ -487,7 +487,7 @@ impl Tokens {
             "update_file_map" => Tokens::LUpdateFileMap(String::new(), String::new(), String::new()),
             other => {
                 // continue to heuristic matches below
-                let id = other.to_string();
+                let id = other;
                 if id.starts_with("indent") { return Tokens::LIndent(0); }
                 if id.starts_with("endb") { return Tokens::LEndBlock(Some(0)); }
                 if id.starts_with("Identifier") { return Tokens::LIdentifier(String::new()); }
@@ -498,7 +498,7 @@ impl Tokens {
                 }
                 if id.starts_with("suffix") { return Tokens::Suffix(String::new(), String::new()); }
                 // fallback: return as identifier token
-                Tokens::LIdentifier(id)
+                Tokens::LIdentifier(id.to_string())
             }
         }
     }
