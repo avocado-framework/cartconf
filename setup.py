@@ -21,7 +21,7 @@ try:
 except ImportError:
     packages = ["cartconf"]
 else:
-    packages = find_namespace_packages(include=["cartconf"])
+    packages = find_namespace_packages(include=["cartconf", "cartconf.*"])
 
 BASE_PATH = os.path.dirname(__file__)
 with open(os.path.join(BASE_PATH, "VERSION"), "r", encoding="utf-8") as version_file:
@@ -36,7 +36,7 @@ def get_long_description():
 
 setup(
     name="avocado-framework-plugin-varianter-cartconf",
-    version=VERSION,
+    version="0.0.1",
     description="Avocado Varianter plugin to parse Cartesian configuration into variants",
     long_description=get_long_description(),
     long_description_content_type="text/x-rst",
@@ -45,7 +45,7 @@ setup(
     url="http://avocado-framework.github.io/",
     packages=packages,
     include_package_data=True,
-    install_requires=[f"avocado-framework=={VERSION}"],
+    install_requires=[f"avocado-framework=={VERSION}", "setuptools<82"],
     test_suite="tests",
     entry_points={
         "avocado.plugins.init": [
