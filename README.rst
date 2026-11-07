@@ -11,8 +11,8 @@ Currently we recommend simple local installation via pip
     cd cartconf
     pip install -e .
 
-Direct parser use
------------------
+Direct python parser use
+------------------------
 
 Given the Cartesian configuration file `example1.cfg`
 
@@ -62,7 +62,6 @@ which will result in the following parameter dictionaries
     dict    3:  vm1.qemu_kvm_fedora.vm2.qemu_kvm_windows_10.vm3.qemu_kvm_ubuntu
     dict    4:  vm1.qemu_kvm_fedora.vm2.qemu_kvm_windows_10.vm3.qemu_kvm_kali
 
-
 Avocado varianter plugin use
 ----------------------------
 
@@ -105,6 +104,37 @@ which will result in a job with the following test parameters
         word = va
         x = va
         y = w1
+
+Rust library and command-line parser use
+----------------------------------------
+
+The Rust library and its ``cartconf`` binary use the same parser implementation::
+
+    cargo build
+    cargo run -- tests/example1.cfg -- "no qemu_kvm_centos"
+
+Rust consumers can use the public API directly::
+
+    use cartconf::{parse_dicts, ParamKeyHashMapExt};
+
+    fn main() -> Result<(), Box<dyn std::error::Error>> {
+        pyo3::Python::initialize();
+        let dicts = parse_dicts(
+            String::new(), "param = val\n".to_string(), None, false, None,
+        )?;
+        for dict in dicts {
+            println!("{:?}", dict.get_str("param"));
+        }
+        Ok(())
+    }
+
+For incremental parsing and streaming dictionary generation, use ``Tree`` and
+``PreDict`` as described below.
+
+PyO3 remains a required dependency. Standalone callers initialize Python to
+support the ``PyErr`` values returned by the Rust API. Of course, if there is
+ever higher interest for the rust crate equivalent we may make PyO3 optional
+and de-prioritize the python exports and python errors.
 
 Main Rust structures for parsing
 --------------------------------

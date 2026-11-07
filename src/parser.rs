@@ -1435,29 +1435,29 @@ pub struct Tree {
 impl Tree {
     #[new]
     #[pyo3(signature = (node=None))]
-    fn new(node: Option<Node>) -> Self {
+    pub fn new(node: Option<Node>) -> Self {
         Self { root: Rc::new(node.unwrap_or_default()) }
     }
 
     /// Return a detached root for the legacy Node inspection API.
     #[getter]
-    fn node(&self) -> Node {
+    pub fn node(&self) -> Node {
         self.root.as_ref().clone()
     }
 
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.root.children.is_empty() && self.root.content.is_empty()
     }
 
     #[pyo3(signature = (cfgstr, defaults=false, expand_defaults=None))]
-    fn parse_string(&self, cfgstr: String, defaults: bool, expand_defaults: Option<Vec<String>>) -> PyResult<Self> {
+    pub fn parse_string(&self, cfgstr: String, defaults: bool, expand_defaults: Option<Vec<String>>) -> PyResult<Self> {
         let mut node = self.root.as_ref().clone();
         node.filename = "<string>".to_string();
         Ok(Self { root: Rc::new(parse_string(cfgstr, node, None, defaults, expand_defaults)?) })
     }
 
     #[pyo3(signature = (cfgfile, defaults=false, expand_defaults=None))]
-    fn parse_file(&self, cfgfile: String, defaults: bool, expand_defaults: Option<Vec<String>>) -> PyResult<Self> {
+    pub fn parse_file(&self, cfgfile: String, defaults: bool, expand_defaults: Option<Vec<String>>) -> PyResult<Self> {
         let mut node = self.root.as_ref().clone();
         node.filename = cfgfile.clone();
         Ok(Self { root: Rc::new(parse_file(cfgfile, node, None, defaults, expand_defaults)?) })
@@ -1550,7 +1550,7 @@ impl PreDict {
 
     #[new]
     #[pyo3(signature = (ctx=None, content=None, shortname=None, dep=None, defaults=None, expand_defaults=None))]
-    fn new(
+    pub fn new(
         ctx: Option<Vec<Label>>,
         content: Option<Vec<ContentStep>>,
         shortname: Option<Vec<Label>>,
@@ -1611,7 +1611,7 @@ impl PreDict {
         self.update_from_node(Rc::new(node), None)
     }
 
-    fn update_from_tree(&mut self, ast: &Tree) -> PyResult<bool> {
+    pub fn update_from_tree(&mut self, ast: &Tree) -> PyResult<bool> {
         self.update_from_node(Rc::clone(&ast.root), None)
     }
 

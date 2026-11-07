@@ -7,28 +7,12 @@ mod lexer;
 mod filters;
 mod parser;
 
-#[cfg(test)]
-mod tests {
-    use super::*; // bring the module under test into scope
-    use crate::tokens::ParamKeyHashMapExt;
+pub use parser::{parse_file, parse_string, Label, Node, PreDict, Tree};
+pub use tokens::{ParamKey, ParamKeyHashMapExt, ParamVal};
 
-    #[test]
-    fn test_parse_dicts() {
-        let dicts = parse_dicts(
-            "".to_string(), "param = val\n".to_string(), None, false, None
-        ).unwrap();
-        assert_eq!(dicts.len(), 1);
-        assert_eq!(dicts[0].len(), 4);
-        assert_ne!(dicts[0].get_str("name"), None);
-        assert_ne!(dicts[0].get_str("shortname"), None);
-        assert_ne!(dicts[0].get_str("dep"), None);
-        assert_eq!(dicts[0].get_str("param"), Some(&tokens::ParamVal::String("val".to_string())));
-    }
-}
-
-/// Parse parametric dictionaries from a configuration string.
+/// Parse parametric dictionaries from a configuration file and/or string.
 #[pyfunction]
-fn parse_dicts(
+pub fn parse_dicts(
     cfgfile: String,
     cfgstr: String,
     prev_indent: Option<usize>,
@@ -96,4 +80,23 @@ fn cartconf(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_dicts, m)?)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*; // bring the module under test into scope
+    use crate::tokens::ParamKeyHashMapExt;
+
+    #[test]
+    fn test_parse_dicts() {
+        let dicts = parse_dicts(
+            "".to_string(), "param = val\n".to_string(), None, false, None
+        ).unwrap();
+        assert_eq!(dicts.len(), 1);
+        assert_eq!(dicts[0].len(), 4);
+        assert_ne!(dicts[0].get_str("name"), None);
+        assert_ne!(dicts[0].get_str("shortname"), None);
+        assert_ne!(dicts[0].get_str("dep"), None);
+        assert_eq!(dicts[0].get_str("param"), Some(&tokens::ParamVal::String("val".to_string())));
+    }
 }
