@@ -1,6 +1,6 @@
 [package]
 name = "cartconf"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "Cartesian config varianter plugin for the Avocado framework"
 license = "GPL-2.0"

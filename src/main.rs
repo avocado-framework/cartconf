@@ -85,7 +85,7 @@ fn print_dict_repr(out: &mut impl Write, d: &HashMap<ParamKey, ParamVal>) -> io:
 
 fn main() {
     let matches = Command::new("cartconf")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Cartconf Team")
         .about("Parse configuration files and output dictionaries")
         .override_usage(
